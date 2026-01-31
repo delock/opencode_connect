@@ -2,11 +2,9 @@
 
 ## 演示视频
 
-[![opencode_connect_demo](https://github.com/delock/opencode_connect/assets/149414334/placeholder)](https://github.com/delock/opencode_connect/releases/download/v0.1/opencode_connect_demo.mp4)
+![opencode_connect_demo](https://github.com/delock/opencode_connect/assets/149414334/opencode_connect_demo.gif)
 
-*点击视频查看演示或下载：[opencode_connect_demo.mp4](https://github.com/delock/opencode_connect/releases/download/v0.1/opencode_connect_demo.mp4)*
-
-<video src="https://github.com/delock/opencode_connect/releases/download/v0.1/opencode_connect_demo.mp4" width="640" height="360" controls></video>
+*下载完整视频：[opencode_connect_demo.mp4](https://github.com/delock/opencode_connect/releases/download/v0.1/opencode_connect_demo.mp4)*
 
 ## 概述
 
