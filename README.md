@@ -4,8 +4,6 @@
 
 ![opencode_connect_demo](https://github.com/delock/opencode_connect/raw/master/images/opencode_connect_demo.gif)
 
-*下载完整视频：[opencode_connect_demo.mp4](https://github.com/delock/opencode_connect/releases/download/v0.1/opencode_connect_demo.mp4)*
-
 ## 概述
 
 本文档介绍如何安装和配置Opencode-Slack连接插件，实现通过Slack控制Opencode的工作流程。该插件通过WebSocket协议建立实时连接，提供双向通信能力。
