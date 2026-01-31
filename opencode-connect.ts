@@ -7,6 +7,8 @@ interface SlackSyncConfig {
   slackBotToken?: string;
   slackAppToken?: string;
   slackUsername?: string;
+  channelMode?: boolean;
+  channelName?: string;
 }
 
 const findUserByName = async (client: WebClient, username: string): Promise<string | null> => {
@@ -21,6 +23,19 @@ const findUserByName = async (client: WebClient, username: string): Promise<stri
   return user?.id ?? null;
 };
 
+const findChannelByName = async (client: WebClient, channelName: string): Promise<string | null> => {
+  const name = channelName.startsWith('#') ? channelName.slice(1) : channelName;
+  
+  const result = await client.conversations.list({ 
+    limit: 200,
+    types: 'public_channel,private_channel'
+  });
+  if (!result.channels) return null;
+  
+  const channel = result.channels.find(c => c.name === name);
+  return channel?.id ?? null;
+};
+
 const sendDM = async (client: WebClient, userId: string, message: string): Promise<void> => {
   const conversation = await client.conversations.open({ users: userId });
   if (!conversation.channel?.id) throw new Error('Failed to open DM channel');
@@ -31,18 +46,31 @@ const sendDM = async (client: WebClient, userId: string, message: string): Promi
   });
 };
 
+const sendToChannel = async (client: WebClient, channelId: string, message: string): Promise<void> => {
+  await client.chat.postMessage({
+    channel: channelId,
+    text: message,
+  });
+};
+
 const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hooks> => {
-  if (!process.env.CONNECT_SLACK) {
+  const connectSlack = process.env.CONNECT_SLACK;
+  if (!connectSlack) {
     return {};
   }
+
+  const channelMode = connectSlack.startsWith('#');
+  const channelName = channelMode ? connectSlack : undefined;
 
   const config: SlackSyncConfig = {
     slackBotToken: process.env.SLACK_BOT_TOKEN,
     slackAppToken: process.env.SLACK_APP_TOKEN,
     slackUsername: process.env.SLACK_USERNAME,
+    channelMode,
+    channelName,
   };
 
-  if (!config.slackUsername) {
+  if (!channelMode && !config.slackUsername) {
     return {};
   }
 
@@ -51,36 +79,55 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const opencodeClient = input.client;
 
   let cachedUserId: string | null = null;
-  let cachedDmChannelId: string | null = null;
+  let cachedChannelId: string | null = null;
   const pendingText = new Map<string, string>();
   const instanceId = Math.floor(1000 + Math.random() * 9000);
   
   const getTargetUserId = async (): Promise<string | null> => {
+    if (channelMode) return null;
     if (cachedUserId) return cachedUserId;
-    if (!slackClient) return null;
+    if (!slackClient || !slackUsername) return null;
     cachedUserId = await findUserByName(slackClient, slackUsername);
     return cachedUserId;
   };
 
-  const getDmChannelId = async (): Promise<string | null> => {
-    if (cachedDmChannelId) return cachedDmChannelId;
+  const getTargetChannelId = async (): Promise<string | null> => {
+    if (cachedChannelId) return cachedChannelId;
     if (!slackClient) return null;
-    const userId = await getTargetUserId();
-    if (!userId) return null;
-    const conversation = await slackClient.conversations.open({ users: userId });
-    cachedDmChannelId = conversation.channel?.id ?? null;
-    return cachedDmChannelId;
+    
+    if (channelMode && channelName) {
+      cachedChannelId = await findChannelByName(slackClient, channelName);
+    } else if (slackUsername) {
+      const userId = await getTargetUserId();
+      if (!userId) return null;
+      const conversation = await slackClient.conversations.open({ users: userId });
+      cachedChannelId = conversation.channel?.id ?? null;
+    }
+    return cachedChannelId;
+  };
+
+  const sendMessage = async (message: string): Promise<void> => {
+    if (!slackClient) return;
+    
+    if (channelMode) {
+      const channelId = await getTargetChannelId();
+      if (channelId) {
+        await sendToChannel(slackClient, channelId, message);
+      }
+    } else {
+      const userId = await getTargetUserId();
+      if (userId) {
+        await sendDM(slackClient, userId, message);
+      }
+    }
   };
 
   if (slackClient) {
     (async () => {
       try {
-        const userId = await findUserByName(slackClient, slackUsername);
-        if (userId) {
-          const hostname = os.hostname();
-          const path = input.directory;
-          await sendDM(slackClient, userId, `*###opencode instance (${instanceId}) from ${hostname}:${path} started.###*`);
-        }
+        const hostname = os.hostname();
+        const path = input.directory;
+        await sendMessage(`*###opencode instance (${instanceId}) from ${hostname}:${path} started.###*`);
       } catch {}
     })();
   }
@@ -91,12 +138,19 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     socketClient.on('message', async ({ event, ack }) => {
       await ack();
       
-      if (event.channel_type !== 'im') return;
       if (event.subtype) return;
       if (event.bot_id) return;
       
-      const dmChannelId = await getDmChannelId();
-      if (event.channel !== dmChannelId) return;
+      const targetChannelId = await getTargetChannelId();
+      if (!targetChannelId) return;
+      
+      if (channelMode) {
+        if (event.channel_type === 'im') return;
+        if (event.channel !== targetChannelId) return;
+      } else {
+        if (event.channel_type !== 'im') return;
+        if (event.channel !== targetChannelId) return;
+      }
       
       const text = event.text;
       if (!text) return;
@@ -131,13 +185,10 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         const sessionId = event.properties.sessionID;
         const text = pendingText.get(sessionId);
         if (text && text.trim().length > 0) {
-          const userId = await getTargetUserId();
-          if (userId) {
-            const maxLen = 3000;
-            const truncated = text.length > maxLen ? text.slice(0, maxLen) + '...(truncated)' : text;
-            const summary = `_opencode session [${instanceId}]_\n${truncated}`;
-            sendDM(slackClient, userId, summary).catch(() => {});
-          }
+          const maxLen = 3000;
+          const truncated = text.length > maxLen ? text.slice(0, maxLen) + '...(truncated)' : text;
+          const summary = `_opencode session [${instanceId}]_\n${truncated}`;
+          sendMessage(summary).catch(() => {});
           pendingText.delete(sessionId);
         }
       }
