@@ -2,7 +2,7 @@
 
 ## 演示视频
 
-![opencode_connect_demo](https://github.com/delock/opencode_connect/assets/149414334/opencode_connect_demo.gif)
+![opencode_connect_demo](https://github.com/delock/opencode_connect/raw/master/images/opencode_connect_demo.gif)
 
 *下载完整视频：[opencode_connect_demo.mp4](https://github.com/delock/opencode_connect/releases/download/v0.1/opencode_connect_demo.mp4)*
 
