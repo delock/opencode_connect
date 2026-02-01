@@ -1,14 +1,19 @@
 import * as os from 'os';
 import type { Plugin, PluginInput, Hooks } from '@opencode-ai/plugin';
 import { WebClient } from '@slack/web-api';
+import { SocketModeClient } from '@slack/socket-mode';
 
 interface SlackSyncConfig {
   slackBotToken?: string;
+  slackAppToken?: string;
   slackUsername?: string;
   channelMode?: boolean;
   channelName?: string;
-  pollIntervalMs?: number;
 }
+
+const FAST_POLL_INTERVAL_MS = 3_000;
+const SLOW_POLL_INTERVAL_MS = 60_000;
+const SLOW_POLL_THRESHOLD_MS = 2 * 60 * 1000;
 
 const findUserByName = async (client: WebClient, username: string): Promise<string | null> => {
   const result = await client.users.list({ limit: 200 });
@@ -60,14 +65,13 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
 
   const channelMode = connectSlack.startsWith('#');
   const channelName = channelMode ? connectSlack : undefined;
-  const pollIntervalMs = parseInt(process.env.SLACK_POLL_INTERVAL || '3000', 10);
 
   const config: SlackSyncConfig = {
     slackBotToken: process.env.SLACK_BOT_TOKEN,
+    slackAppToken: process.env.SLACK_APP_TOKEN,
     slackUsername: process.env.SLACK_USERNAME,
     channelMode,
     channelName,
-    pollIntervalMs,
   };
 
   if (!channelMode && !config.slackUsername) {
@@ -82,6 +86,8 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   let cachedChannelId: string | null = null;
   let cachedBotUserId: string | null = null;
   let lastSeenTs: string | null = null;
+  let lastActivityTime: number = Date.now();
+  let pollTimerId: ReturnType<typeof setTimeout> | null = null;
   const pendingText = new Map<string, string>();
   const instanceId = Math.floor(1000 + Math.random() * 9000);
   
@@ -147,6 +153,21 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     return true;
   };
 
+  const getCurrentPollInterval = (): number => {
+    const timeSinceActivity = Date.now() - lastActivityTime;
+    return timeSinceActivity >= SLOW_POLL_THRESHOLD_MS ? SLOW_POLL_INTERVAL_MS : FAST_POLL_INTERVAL_MS;
+  };
+
+  const scheduleNextPoll = (): void => {
+    if (pollTimerId) {
+      clearTimeout(pollTimerId);
+    }
+    const interval = getCurrentPollInterval();
+    pollTimerId = setTimeout(() => {
+      pollMessages().catch(() => {});
+    }, interval);
+  };
+
   const pollMessages = async (): Promise<void> => {
     if (!slackClient) return;
     
@@ -162,11 +183,21 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         oldest: lastSeenTs || undefined,
       });
       
-      if (!result.messages || result.messages.length === 0) return;
+      if (!result.messages || result.messages.length === 0) {
+        scheduleNextPoll();
+        return;
+      }
       
       const newMessages = result.messages
         .filter(msg => !isMessageFromBot(msg, botUserId) && isNewUserMessage(msg))
         .sort((a, b) => parseFloat(a.ts || '0') - parseFloat(b.ts || '0'));
+      
+      if (newMessages.length === 0) {
+        scheduleNextPoll();
+        return;
+      }
+
+      lastActivityTime = Date.now();
       
       for (const msg of newMessages) {
         if (!msg.text || !msg.ts) continue;
@@ -178,7 +209,11 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           await opencodeClient.tui.submitPrompt({});
         } catch {}
       }
-    } catch {}
+      
+      scheduleNextPoll();
+    } catch {
+      scheduleNextPoll();
+    }
   };
 
   const initializeLastSeenTs = async (): Promise<void> => {
@@ -197,15 +232,6 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     }
   };
 
-  const startPolling = (): void => {
-    const poll = () => {
-      pollMessages().finally(() => {
-        setTimeout(poll, pollIntervalMs);
-      });
-    };
-    setTimeout(poll, pollIntervalMs);
-  };
-
   if (slackClient) {
     (async () => {
       try {
@@ -213,10 +239,38 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         const path = input.directory;
         await sendMessage(`*###opencode instance (${instanceId}) from ${hostname}:${path} started.###*`);
         await initializeLastSeenTs();
+        
+        if (channelMode) {
+          scheduleNextPoll();
+        }
       } catch {}
     })();
+  }
+
+  if (!channelMode && config.slackAppToken) {
+    const socketClient = new SocketModeClient({ appToken: config.slackAppToken });
     
-    startPolling();
+    socketClient.on('message', async ({ event, ack }) => {
+      await ack();
+      
+      if (event.subtype) return;
+      if (event.bot_id) return;
+      if (event.channel_type !== 'im') return;
+      
+      const targetChannelId = await getTargetChannelId();
+      if (!targetChannelId) return;
+      if (event.channel !== targetChannelId) return;
+      
+      const text = event.text;
+      if (!text) return;
+      
+      try {
+        await opencodeClient.tui.appendPrompt({ body: { text } });
+        await opencodeClient.tui.submitPrompt({});
+      } catch {}
+    });
+    
+    socketClient.start().catch(() => {});
   }
 
   return {
@@ -245,6 +299,11 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           const summary = `_opencode session [${instanceId}]_\n${truncated}`;
           sendMessage(summary).catch(() => {});
           pendingText.delete(sessionId);
+        }
+        
+        if (channelMode) {
+          lastActivityTime = Date.now();
+          pollMessages().catch(() => {});
         }
       }
     },
