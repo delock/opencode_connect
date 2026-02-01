@@ -123,6 +123,15 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const pendingText = new Map<string, string>();
   const instanceId = Math.floor(1000 + Math.random() * 9000);
   
+  interface PendingQuestion {
+    sessionId: string;
+    partId: string;
+    options: Array<{ label: string; description?: string }>;
+    multiple: boolean;
+    custom: boolean;
+  }
+  let pendingQuestion: PendingQuestion | null = null;
+  
   const getTargetUserId = async (): Promise<string | null> => {
     if (channelMode) return null;
     if (cachedUserId) return cachedUserId;
@@ -176,6 +185,38 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   };
 
   const handleIncomingMessage = async (text: string): Promise<void> => {
+    if (pendingQuestion) {
+      const trimmed = text.trim();
+      const numMatch = trimmed.match(/^(\d+)$/);
+      
+      if (numMatch) {
+        const num = parseInt(numMatch[1], 10);
+        const { options, custom } = pendingQuestion;
+        
+        if (num >= 1 && num <= options.length) {
+          const selected = options[num - 1].label;
+          await opencodeClient.tui.appendPrompt({ body: { text: selected } });
+          await opencodeClient.tui.submitPrompt({});
+          pendingQuestion = null;
+          return;
+        } else if (custom && num === options.length + 1) {
+          await sendMessage(`_[${instanceId}] 请输入自定义回答:_`);
+          pendingQuestion = null;
+          return;
+        } else {
+          await sendMessage(`_[${instanceId}] ⚠️ 无效选项，请输入 1-${options.length}${custom ? ` 或 ${options.length + 1} 自定义` : ''}_`);
+          return;
+        }
+      }
+      
+      if (pendingQuestion.custom) {
+        await opencodeClient.tui.appendPrompt({ body: { text: trimmed } });
+        await opencodeClient.tui.submitPrompt({});
+        pendingQuestion = null;
+        return;
+      }
+    }
+    
     if (isShellCommand(text)) {
       const command = text.slice(1).trim();
       const result = await executeShellCommand(command, workingDirectory);
@@ -347,6 +388,42 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
             pendingText.set(sessionId, existing + event.properties.delta);
           } else {
             pendingText.set(sessionId, part.text);
+          }
+        }
+        
+        if (part.type === 'tool' && part.tool === 'question') {
+          const state = part.state as { status: string; input?: { questions?: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }>; multiple?: boolean }>}; metadata?: { custom?: boolean } };
+          if (state.status === 'running' && state.input?.questions) {
+            const questions = state.input.questions;
+            const custom = state.metadata?.custom !== false;
+            
+            for (const q of questions) {
+              const options = q.options || [];
+              if (options.length === 0) continue;
+              
+              let msg = `_[${instanceId}] ❓ ${q.question}_\n`;
+              options.forEach((opt, idx) => {
+                msg += `*${idx + 1}.* ${opt.label}`;
+                if (opt.description) {
+                  msg += ` - ${opt.description}`;
+                }
+                msg += '\n';
+              });
+              if (custom) {
+                msg += `*${options.length + 1}.* _自定义回答_\n`;
+              }
+              msg += `\n_回复数字选择 (1-${options.length}${custom ? ` 或 ${options.length + 1} 自定义` : ''})_`;
+              
+              pendingQuestion = {
+                sessionId: part.sessionID,
+                partId: part.id,
+                options,
+                multiple: q.multiple || false,
+                custom,
+              };
+              
+              await sendMessage(msg);
+            }
           }
         }
       }
