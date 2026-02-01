@@ -460,6 +460,13 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         }
       }
       
+      if (event.type === 'session.created') {
+        const session = event.properties.info;
+        if (session.parentID && session.parentID === activeMainSessionId) {
+          pendingText.delete(activeMainSessionId);
+        }
+      }
+      
       if (event.type === 'session.idle') {
         const sessionId = event.properties.sessionID;
         
