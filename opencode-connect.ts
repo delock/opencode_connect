@@ -19,6 +19,7 @@ const FAST_POLL_INTERVAL_MS = 3_000;
 const SLOW_POLL_INTERVAL_MS = 60_000;
 const SLOW_POLL_THRESHOLD_MS = 2 * 60 * 1000;
 const SHELL_COMMAND_TIMEOUT_MS = 30_000; // 30 seconds timeout for shell commands
+const ENABLE_SHELL_MODE = !!process.env.OPENCODE_CONNECT_SHELL; // Shell mode disabled by default for security
 
 const findUserByName = async (client: WebClient, username: string): Promise<string | null> => {
   const result = await client.users.list({ limit: 200 });
@@ -46,7 +47,7 @@ const findChannelByName = async (client: WebClient, channelName: string): Promis
 };
 
 const isShellCommand = (text: string): boolean => {
-  return text.startsWith('!') && text.length > 1;
+  return ENABLE_SHELL_MODE && text.startsWith('!') && text.length > 1;
 };
 
 const executeShellCommand = async (command: string, cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {

@@ -183,6 +183,7 @@ git clone https://github.com/delock/opencode_connect
 export SLACK_BOT_TOKEN=xoxb-...      # Bot User OAuth Token
 export SLACK_APP_TOKEN=xapp-...      # 应用级令牌
 export SLACK_USERNAME=your_username  # 您的Slack用户名
+export OPENCODE_CONNECT_SHELL=1      # 可选：启用Shell模式（见下方说明）
 ```
 
 保存后重新加载配置：
@@ -264,3 +265,43 @@ Channel模式通过轮询获取消息：
 - 建议在专用的Slack工作区中进行此集成
 - 定期轮换API令牌以确保安全性
 - 保持插件文件的最新版本以获得最佳兼容性
+
+---
+
+## Shell模式
+
+Shell模式允许通过在消息前加 `!` 前缀来直接执行shell命令，绕过AI处理。
+
+### 安全说明
+
+**Shell模式默认禁用**，因为它存在以下安全风险：
+
+- 命令直接执行，无任何过滤或确认
+- 以运行opencode的用户权限执行
+- 如果Slack账号被盗用，攻击者可在服务器上执行任意命令
+
+### 启用方法
+
+如需启用Shell模式，设置环境变量：
+
+```bash
+export OPENCODE_CONNECT_SHELL=1
+```
+
+### 使用方法
+
+启用后，在消息前加 `!` 即可直接执行shell命令：
+
+```
+!git status
+!ls -la
+!pwd
+```
+
+命令在opencode的工作目录中执行，有30秒超时限制。
+
+### 建议
+
+- 仅在可信环境中启用
+- 考虑使用受限用户或容器运行opencode
+- 确保Slack工作区是私有的
