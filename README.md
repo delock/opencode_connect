@@ -6,7 +6,7 @@
 
 ## 概述
 
-本文档介绍如何安装和配置Opencode-Slack连接插件，实现通过Slack控制Opencode的工作流程。该插件通过WebSocket协议建立实时连接，提供双向通信能力。
+本文档介绍如何安装和配置Opencode-Slack连接插件，实现通过Slack控制Opencode的工作流程。
 
 ## 安装步骤
 
@@ -32,6 +32,20 @@ git clone https://github.com/delock/opencode_connect
 ```
 
 修改后第一次启动opencode时，opencode会自动安装这些依赖包。
+
+### 3. 复制插件文件
+
+将 `opencode-connect.ts` 文件复制到以下目录之一：
+
+```
+~/.config/opencode/plugins/
+```
+
+或
+
+```
+~/.opencode/plugins/
+```
 
 ## Slack应用配置
 
@@ -161,64 +175,40 @@ git clone https://github.com/delock/opencode_connect
    - Slash Commands
    - Event Subscriptions
 
-## 插件配置
-
-### 1. 复制插件文件
-
-将 `opencode-connect.ts` 文件复制到以下目录之一：
-
-```
-~/.config/opencode/plugins/
-```
-
-或
-
-```
-~/.opencode/plugins/
-```
-
-### 2. 配置环境变量
+## 环境变量配置
 
 编辑 `.bashrc` 文件，添加以下环境变量：
 
 ```bash
-export SLACK_APP_TOKEN=xapp-...  # 替换为前面生成的应用级令牌
-export SLACK_BOT_TOKEN=xoxb-... # 替换为OAuth & Permissions页面的Bot User OAuth Token
-export SLACK_USERNAME=<your slack username>  # 替换为您的Slack用户名
+export SLACK_BOT_TOKEN=xoxb-...      # Bot User OAuth Token
+export SLACK_APP_TOKEN=xapp-...      # 应用级令牌
+export SLACK_USERNAME=your_username  # 您的Slack用户名
 ```
 
-### 3. 获取用户ID
-
-在Slack应用中，进入您指定的workspace，点击私信（Direct Message）功能，获取您的用户ID，并将其添加到环境变量中（如需要）。
-
-### 4. 重新加载配置
-
-保存 `.bashrc` 文件后，重新加载环境变量：
+保存后重新加载配置：
 
 ```bash
 source ~/.bashrc
 ```
 
-## 验证安装
-
-完成上述配置后，启动opencode服务，验证Slack与opencode的连接是否成功。您应该能够通过Slack发送命令来控制opencode的工作流程。
-
 ## 使用指南
 
-完成以上配置后，可通过以下步骤启动和使用Opencode-Slack集成：
+### 启动
 
-1. **启动集成**：在命令行中执行以下命令启动opencode并启用Slack连接：
-   ```
-   CONNECT_SLACK=1 opencode
-   ```
+在命令行中执行以下命令启动opencode并启用Slack连接：
 
-2. **等待初始化**：opencode将开始安装依赖项（此过程可能需要几分钟时间），随后界面将显示出来。
+```bash
+CONNECT_SLACK=1 opencode
+```
 
-3. **接收连接确认**：在Slack中，您将收到来自OpencodeBot的直接消息，表示连接已成功建立。
+### 验证连接
 
-4. **发送指令**：通过Slack向OpencodeBot发送您的需求和指令，opencode将在其空闲时处理并返回输出内容。
+1. opencode启动后，您将在Slack中收到来自OpencodeBot的直接消息，表示连接已成功建立
+2. 首次使用时，建议发送简短的测试指令（如"hello"）来验证opencode是否正常工作
 
-5. **首次验证**：首次使用时，建议发送简短的测试指令（如"hello"）来验证opencode是否正常工作。
+### 日常使用
+
+通过Slack向OpencodeBot发送您的需求和指令，opencode将在其空闲时处理并返回输出内容。
 
 ## 故障排除
 
@@ -227,8 +217,50 @@ source ~/.bashrc
 - 验证Socket Mode是否已启用
 - 检查防火墙设置是否阻止了WebSocket连接
 
+---
+
+## 进阶：多实例模式（Channel模式）
+
+当您需要同时运行多个opencode实例时（例如在不同项目目录中），需要使用Channel模式。
+
+### 为什么需要Channel模式？
+
+DM模式使用Slack的Socket Mode，它会将消息随机分发给多个连接中的一个。如果两个opencode实例同时使用DM模式，消息会随机发送到其中一个，导致消息丢失。
+
+Channel模式让每个实例监听不同的channel，互不干扰。
+
+### 使用方法
+
+1. 在Slack中创建一个channel（如 `#project-a`）
+2. 邀请OpencodeBot加入该channel
+3. 启动时指定channel名称：
+
+```bash
+CONNECT_SLACK=#project-a opencode
+```
+
+### 多实例示例
+
+```bash
+# 终端1 - 项目A
+cd ~/projects/project-a
+CONNECT_SLACK=#project-a opencode
+
+# 终端2 - 项目B  
+cd ~/projects/project-b
+CONNECT_SLACK=#project-b opencode
+```
+
+### 轮询机制说明
+
+Channel模式通过轮询获取消息：
+- 活跃期（有消息或任务完成后2分钟内）：每3秒轮询
+- 空闲期（超过2分钟无活动）：每60秒轮询
+
+如需实时响应，建议使用DM模式（但同一时间只能有一个DM实例）。
+
 ## 注意事项
 
-- 建议在专用的Slack工作区中进行此集成，以便更好地管理权限
+- 建议在专用的Slack工作区中进行此集成
 - 定期轮换API令牌以确保安全性
 - 保持插件文件的最新版本以获得最佳兼容性
