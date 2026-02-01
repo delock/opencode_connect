@@ -1,7 +1,11 @@
 import * as os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import type { Plugin, PluginInput, Hooks } from '@opencode-ai/plugin';
 import { WebClient } from '@slack/web-api';
 import { SocketModeClient } from '@slack/socket-mode';
+
+const execAsync = promisify(exec);
 
 interface SlackSyncConfig {
   slackBotToken?: string;
@@ -14,6 +18,7 @@ interface SlackSyncConfig {
 const FAST_POLL_INTERVAL_MS = 3_000;
 const SLOW_POLL_INTERVAL_MS = 60_000;
 const SLOW_POLL_THRESHOLD_MS = 2 * 60 * 1000;
+const SHELL_COMMAND_TIMEOUT_MS = 30_000; // 30 seconds timeout for shell commands
 
 const findUserByName = async (client: WebClient, username: string): Promise<string | null> => {
   const result = await client.users.list({ limit: 200 });
@@ -38,6 +43,31 @@ const findChannelByName = async (client: WebClient, channelName: string): Promis
   
   const channel = result.channels.find(c => c.name === name);
   return channel?.id ?? null;
+};
+
+const isShellCommand = (text: string): boolean => {
+  return text.startsWith('!') && text.length > 1;
+};
+
+const executeShellCommand = async (command: string, cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      cwd,
+      timeout: SHELL_COMMAND_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024,
+    });
+    return { stdout, stderr, exitCode: 0 };
+  } catch (error: unknown) {
+    const execError = error as { stdout?: string; stderr?: string; code?: number; killed?: boolean };
+    if (execError.killed) {
+      return { stdout: '', stderr: 'Command timed out', exitCode: 124 };
+    }
+    return {
+      stdout: execError.stdout || '',
+      stderr: execError.stderr || String(error),
+      exitCode: execError.code || 1,
+    };
+  }
 };
 
 const sendDM = async (client: WebClient, userId: string, message: string): Promise<void> => {
@@ -81,6 +111,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const slackUsername = config.slackUsername;
   const slackClient = config.slackBotToken ? new WebClient(config.slackBotToken) : null;
   const opencodeClient = input.client;
+  const workingDirectory = input.directory;
 
   let cachedUserId: string | null = null;
   let cachedChannelId: string | null = null;
@@ -140,6 +171,32 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       if (userId) {
         await sendDM(slackClient, userId, message);
       }
+    }
+  };
+
+  const handleIncomingMessage = async (text: string): Promise<void> => {
+    if (isShellCommand(text)) {
+      const command = text.slice(1).trim();
+      const result = await executeShellCommand(command, workingDirectory);
+      
+      let output = '';
+      if (result.stdout) {
+        output += result.stdout;
+      }
+      if (result.stderr) {
+        output += (output ? '\n' : '') + result.stderr;
+      }
+      if (!output) {
+        output = result.exitCode === 0 ? '(no output)' : `(exit code: ${result.exitCode})`;
+      }
+      
+      const maxLen = 3000;
+      const truncated = output.length > maxLen ? output.slice(0, maxLen) + '...(truncated)' : output;
+      const response = `_shell [${instanceId}]_ \`${command}\`\n\`\`\`\n${truncated}\n\`\`\``;
+      await sendMessage(response);
+    } else {
+      await opencodeClient.tui.appendPrompt({ body: { text } });
+      await opencodeClient.tui.submitPrompt({});
     }
   };
 
@@ -205,8 +262,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         lastSeenTs = msg.ts;
         
         try {
-          await opencodeClient.tui.appendPrompt({ body: { text: msg.text } });
-          await opencodeClient.tui.submitPrompt({});
+          await handleIncomingMessage(msg.text);
         } catch {}
       }
       
@@ -265,8 +321,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       if (!text) return;
       
       try {
-        await opencodeClient.tui.appendPrompt({ body: { text } });
-        await opencodeClient.tui.submitPrompt({});
+        await handleIncomingMessage(text);
       } catch {}
     });
     
