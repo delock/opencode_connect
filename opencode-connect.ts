@@ -126,11 +126,26 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   interface PendingQuestion {
     sessionId: string;
     partId: string;
+    requestId: string;
     options: Array<{ label: string; description?: string }>;
     multiple: boolean;
     custom: boolean;
   }
   let pendingQuestion: PendingQuestion | null = null;
+  
+  const replyToQuestion = async (requestId: string, answers: string[][]): Promise<void> => {
+    // Use the SDK's internal client to make the request (it's properly configured)
+    // @ts-ignore - accessing internal _client
+    const internalClient = opencodeClient._client;
+    const result = await internalClient.post({
+      url: `/question/${requestId}/reply`,
+      headers: { 'Content-Type': 'application/json' },
+      body: { answers },
+    });
+    if (result.error) {
+      throw new Error(`Failed to reply to question: ${JSON.stringify(result.error)}`);
+    }
+  };
   
   const getTargetUserId = async (): Promise<string | null> => {
     if (channelMode) return null;
@@ -191,17 +206,19 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       
       if (numMatch) {
         const num = parseInt(numMatch[1], 10);
-        const { options, custom } = pendingQuestion;
+        const { options, custom, requestId } = pendingQuestion;
         
         if (num >= 1 && num <= options.length) {
           const selected = options[num - 1].label;
-          await opencodeClient.tui.appendPrompt({ body: { text: selected } });
-          await opencodeClient.tui.submitPrompt({});
-          pendingQuestion = null;
+          try {
+            await replyToQuestion(requestId, [[selected]]);
+            pendingQuestion = null;
+          } catch (error) {
+            await sendMessage(`_[${instanceId}] ⚠️ 回答失败: ${error}_`);
+          }
           return;
         } else if (custom && num === options.length + 1) {
           await sendMessage(`_[${instanceId}] 请输入自定义回答:_`);
-          pendingQuestion = null;
           return;
         } else {
           await sendMessage(`_[${instanceId}] ⚠️ 无效选项，请输入 1-${options.length}${custom ? ` 或 ${options.length + 1} 自定义` : ''}_`);
@@ -210,9 +227,12 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       }
       
       if (pendingQuestion.custom) {
-        await opencodeClient.tui.appendPrompt({ body: { text: trimmed } });
-        await opencodeClient.tui.submitPrompt({});
-        pendingQuestion = null;
+        try {
+          await replyToQuestion(pendingQuestion.requestId, [[trimmed]]);
+          pendingQuestion = null;
+        } catch (error) {
+          await sendMessage(`_[${instanceId}] ⚠️ 回答失败: ${error}_`);
+        }
         return;
       }
     }
@@ -390,41 +410,53 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
             pendingText.set(sessionId, part.text);
           }
         }
+      }
+      
+      if (event.type === 'question.asked') {
+        const questionRequest = event.properties as { 
+          id: string; 
+          sessionID: string; 
+          questions: Array<{ 
+            question: string; 
+            header?: string; 
+            options: Array<{ label: string; description?: string }>; 
+            multiple?: boolean;
+            custom?: boolean;
+          }>;
+        };
         
-        if (part.type === 'tool' && part.tool === 'question') {
-          const state = part.state as { status: string; input?: { questions?: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }>; multiple?: boolean }>}; metadata?: { custom?: boolean } };
-          if (state.status === 'running' && state.input?.questions) {
-            const questions = state.input.questions;
-            const custom = state.metadata?.custom !== false;
-            
-            for (const q of questions) {
-              const options = q.options || [];
-              if (options.length === 0) continue;
-              
-              let msg = `_[${instanceId}] ❓ ${q.question}_\n`;
-              options.forEach((opt, idx) => {
-                msg += `*${idx + 1}.* ${opt.label}`;
-                if (opt.description) {
-                  msg += ` - ${opt.description}`;
-                }
-                msg += '\n';
-              });
-              if (custom) {
-                msg += `*${options.length + 1}.* _自定义回答_\n`;
-              }
-              msg += `\n_回复数字选择 (1-${options.length}${custom ? ` 或 ${options.length + 1} 自定义` : ''})_`;
-              
-              pendingQuestion = {
-                sessionId: part.sessionID,
-                partId: part.id,
-                options,
-                multiple: q.multiple || false,
-                custom,
-              };
-              
-              await sendMessage(msg);
+        const requestId = questionRequest.id;
+        const questions = questionRequest.questions || [];
+        
+        for (const q of questions) {
+          const options = q.options || [];
+          if (options.length === 0) continue;
+          
+          const custom = q.custom !== false;
+          
+          let msg = `_[${instanceId}] ❓ ${q.question}_\n`;
+          options.forEach((opt, idx) => {
+            msg += `*${idx + 1}.* ${opt.label}`;
+            if (opt.description) {
+              msg += ` - ${opt.description}`;
             }
+            msg += '\n';
+          });
+          if (custom) {
+            msg += `*${options.length + 1}.* _自定义回答_\n`;
           }
+          msg += `\n_回复数字选择 (1-${options.length}${custom ? ` 或 ${options.length + 1} 自定义` : ''})_`;
+          
+          pendingQuestion = {
+            sessionId: questionRequest.sessionID,
+            partId: '',
+            requestId,
+            options,
+            multiple: q.multiple || false,
+            custom,
+          };
+          
+          await sendMessage(msg);
         }
       }
       
