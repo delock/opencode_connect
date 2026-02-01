@@ -391,6 +391,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   }
 
   let activeMainSessionId: string | null = null;
+  const subSessionIds = new Set<string>();
 
   return {
     event: async ({ event }) => {
@@ -402,6 +403,9 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           const sessionId = part.sessionID;
           if (!activeMainSessionId) {
             activeMainSessionId = sessionId;
+          }
+          if (subSessionIds.has(sessionId)) {
+            return;
           }
           const existing = pendingText.get(sessionId) || '';
           if (event.properties.delta) {
@@ -462,22 +466,22 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       
       if (event.type === 'session.created') {
         const session = event.properties.info;
-        if (session.parentID && session.parentID === activeMainSessionId) {
-          pendingText.delete(activeMainSessionId);
+        if (session.parentID) {
+          subSessionIds.add(session.id);
+          if (session.parentID === activeMainSessionId) {
+            pendingText.delete(activeMainSessionId);
+          }
         }
       }
       
       if (event.type === 'session.idle') {
         const sessionId = event.properties.sessionID;
         
-        try {
-          const sessions = await opencodeClient.session.list({});
-          const session = sessions.find(s => s.id === sessionId);
-          if (session?.parentID) {
-            pendingText.delete(sessionId);
-            return;
-          }
-        } catch {}
+        if (subSessionIds.has(sessionId)) {
+          subSessionIds.delete(sessionId);
+          pendingText.delete(sessionId);
+          return;
+        }
         
         const text = pendingText.get(sessionId);
         if (text && text.trim().length > 0) {
