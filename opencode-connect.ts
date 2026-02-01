@@ -329,6 +329,8 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     socketClient.start().catch(() => {});
   }
 
+  let activeMainSessionId: string | null = null;
+
   return {
     event: async ({ event }) => {
       if (!slackClient) return;
@@ -337,6 +339,9 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         const part = event.properties.part;
         if (part.type === 'text') {
           const sessionId = part.sessionID;
+          if (!activeMainSessionId) {
+            activeMainSessionId = sessionId;
+          }
           const existing = pendingText.get(sessionId) || '';
           if (event.properties.delta) {
             pendingText.set(sessionId, existing + event.properties.delta);
@@ -346,8 +351,33 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         }
       }
       
+      if (event.type === 'session.updated') {
+        const session = event.properties.info;
+        if (session.parentID && activeMainSessionId) {
+          const text = pendingText.get(activeMainSessionId);
+          if (text && text.trim().length > 0) {
+            const maxLen = 3000;
+            const truncated = text.length > maxLen ? text.slice(0, maxLen) + '...(truncated)' : text;
+            const partial = `_opencode session [${instanceId}]_\n${truncated}`;
+            await sendMessage(partial);
+            pendingText.delete(activeMainSessionId);
+          }
+          await sendMessage(`_[${instanceId}] 🤖 delegating to subagent..._`);
+        }
+      }
+      
       if (event.type === 'session.idle') {
         const sessionId = event.properties.sessionID;
+        
+        try {
+          const sessions = await opencodeClient.session.list({});
+          const session = sessions.find(s => s.id === sessionId);
+          if (session?.parentID) {
+            pendingText.delete(sessionId);
+            return;
+          }
+        } catch {}
+        
         const text = pendingText.get(sessionId);
         if (text && text.trim().length > 0) {
           const maxLen = 3000;
@@ -355,6 +385,10 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           const summary = `_opencode session [${instanceId}]_\n${truncated}`;
           sendMessage(summary).catch(() => {});
           pendingText.delete(sessionId);
+        }
+        
+        if (sessionId === activeMainSessionId) {
+          activeMainSessionId = null;
         }
         
         if (channelMode) {
