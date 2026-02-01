@@ -460,21 +460,6 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         }
       }
       
-      if (event.type === 'session.updated') {
-        const session = event.properties.info;
-        if (session.parentID && activeMainSessionId) {
-          const text = pendingText.get(activeMainSessionId);
-          if (text && text.trim().length > 0) {
-            const maxLen = 3000;
-            const truncated = text.length > maxLen ? text.slice(0, maxLen) + '...(truncated)' : text;
-            const partial = `_opencode session [${instanceId}]_\n${truncated}`;
-            await sendMessage(partial);
-            pendingText.delete(activeMainSessionId);
-          }
-          await sendMessage(`_[${instanceId}] 🤖 delegating to subagent..._`);
-        }
-      }
-      
       if (event.type === 'session.idle') {
         const sessionId = event.properties.sessionID;
         
