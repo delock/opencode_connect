@@ -17,3 +17,10 @@
 - 调用 Ollama HTTP API (`localhost:11434`)
 - 可用模型：llama3、phi3 等小模型
 - 检查失败时的处理策略待定（阻止/警告/记录）
+
+## Bot 授权功能
+
+### 未来：支持 delegate 给 bot
+- 允许授权另一个 AI bot 控制 OpenCode
+- 需要限制 bot 的 shell 命令权限（`!` 前缀）
+- 人类用户暂不限制 shell 权限
