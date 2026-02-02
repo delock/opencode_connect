@@ -266,7 +266,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   };
 
   const isMessageFromTargetUser = (msg: { user?: string }, targetUserId: string | null): boolean => {
-    if (!targetUserId) return true;
+    if (!targetUserId) return false;
     return msg.user === targetUserId;
   };
 
