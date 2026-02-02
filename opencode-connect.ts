@@ -305,14 +305,14 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const handleAdminCommand = async (msg: { text?: string; user?: string }, adminUserId: string): Promise<boolean> => {
     const text = msg.text?.trim() || '';
     
-    if (text.startsWith('/delegate ')) {
+    if (text.startsWith('\\delegate ')) {
       if (msg.user !== adminUserId) {
-        await sendMessage(`_[${instanceId}] ⚠️ 只有管理员可以使用 /delegate 命令_`);
+        await sendMessage(`_[${instanceId}] ⚠️ 只有管理员可以使用 \\delegate 命令_`);
         return true;
       }
-      const targetUsername = text.slice('/delegate '.length).trim();
+      const targetUsername = text.slice('\\delegate '.length).trim();
       if (!targetUsername) {
-        await sendMessage(`_[${instanceId}] ⚠️ 用法: /delegate username_`);
+        await sendMessage(`_[${instanceId}] ⚠️ 用法: \\delegate username_`);
         return true;
       }
       const targetId = await findUserByName(slackClient!, targetUsername);
@@ -329,9 +329,9 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       return true;
     }
     
-    if (text === '/revoke') {
+    if (text === '\\revoke') {
       if (msg.user !== adminUserId) {
-        await sendMessage(`_[${instanceId}] ⚠️ 只有管理员可以使用 /revoke 命令_`);
+        await sendMessage(`_[${instanceId}] ⚠️ 只有管理员可以使用 \\revoke 命令_`);
         return true;
       }
       if (!delegatedUserId) {
