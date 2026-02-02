@@ -123,6 +123,8 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const pendingText = new Map<string, string>();
   const instanceId = Math.floor(1000 + Math.random() * 9000);
   
+  let delegatedUserId: string | null = null;
+  
   interface PendingQuestion {
     sessionId: string;
     partId: string;
@@ -265,9 +267,16 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     return !!msg.bot_id || (!!botUserId && msg.user === botUserId);
   };
 
-  const isMessageFromTargetUser = (msg: { user?: string }, targetUserId: string | null): boolean => {
-    if (!targetUserId) return true;
-    return msg.user === targetUserId;
+  const isMessageFromAuthorizedUser = (msg: { user?: string }, adminUserId: string | null): boolean => {
+    if (!msg.user) return false;
+    if (adminUserId && msg.user === adminUserId) return true;
+    if (delegatedUserId && msg.user === delegatedUserId) return true;
+    return false;
+  };
+
+  const isMessageFromAdmin = (msg: { user?: string }, adminUserId: string | null): boolean => {
+    if (!adminUserId) return false;
+    return msg.user === adminUserId;
   };
 
   const isNewUserMessage = (msg: { subtype?: string; ts?: string }): boolean => {
@@ -291,6 +300,50 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     }, interval);
   };
 
+  const handleAdminCommand = async (msg: { text?: string; user?: string }, adminUserId: string): Promise<boolean> => {
+    const text = msg.text?.trim() || '';
+    
+    if (text.startsWith('/delegate ')) {
+      if (msg.user !== adminUserId) {
+        await sendMessage(`_[${instanceId}] ⚠️ 只有管理员可以使用 /delegate 命令_`);
+        return true;
+      }
+      const targetUsername = text.slice('/delegate '.length).trim();
+      if (!targetUsername) {
+        await sendMessage(`_[${instanceId}] ⚠️ 用法: /delegate username_`);
+        return true;
+      }
+      const targetId = await findUserByName(slackClient!, targetUsername);
+      if (!targetId) {
+        await sendMessage(`_[${instanceId}] ⚠️ 找不到用户: ${targetUsername}_`);
+        return true;
+      }
+      if (targetId === adminUserId) {
+        await sendMessage(`_[${instanceId}] ⚠️ 不能授权给管理员自己_`);
+        return true;
+      }
+      delegatedUserId = targetId;
+      await sendMessage(`_[${instanceId}] ✅ 已授权用户 ${targetUsername} 与 OpenCode 交互_`);
+      return true;
+    }
+    
+    if (text === '/revoke') {
+      if (msg.user !== adminUserId) {
+        await sendMessage(`_[${instanceId}] ⚠️ 只有管理员可以使用 /revoke 命令_`);
+        return true;
+      }
+      if (!delegatedUserId) {
+        await sendMessage(`_[${instanceId}] ⚠️ 当前没有被授权的用户_`);
+        return true;
+      }
+      delegatedUserId = null;
+      await sendMessage(`_[${instanceId}] ✅ 已撤销授权_`);
+      return true;
+    }
+    
+    return false;
+  };
+
   const pollMessages = async (): Promise<void> => {
     if (!slackClient) return;
     
@@ -299,7 +352,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       if (!channelId) return;
       
       const botUserId = await getBotUserId();
-      const targetUserId = await getTargetUserId();
+      const adminUserId = await getTargetUserId();
       
       const result = await slackClient.conversations.history({
         channel: channelId,
@@ -313,7 +366,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       }
       
       const newMessages = result.messages
-        .filter(msg => !isMessageFromBot(msg, botUserId) && isMessageFromTargetUser(msg, targetUserId) && isNewUserMessage(msg))
+        .filter(msg => !isMessageFromBot(msg, botUserId) && isNewUserMessage(msg))
         .sort((a, b) => parseFloat(a.ts || '0') - parseFloat(b.ts || '0'));
       
       if (newMessages.length === 0) {
@@ -327,6 +380,14 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         if (!msg.text || !msg.ts) continue;
         
         lastSeenTs = msg.ts;
+        
+        if (adminUserId && await handleAdminCommand(msg, adminUserId)) {
+          continue;
+        }
+        
+        if (!isMessageFromAuthorizedUser(msg, adminUserId)) {
+          continue;
+        }
         
         try {
           await handleIncomingMessage(msg.text);
