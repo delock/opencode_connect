@@ -148,7 +148,6 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   };
   
   const getTargetUserId = async (): Promise<string | null> => {
-    if (channelMode) return null;
     if (cachedUserId) return cachedUserId;
     if (!slackClient || !slackUsername) return null;
     cachedUserId = await findUserByName(slackClient, slackUsername);
@@ -266,6 +265,11 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     return !!msg.bot_id || (!!botUserId && msg.user === botUserId);
   };
 
+  const isMessageFromTargetUser = (msg: { user?: string }, targetUserId: string | null): boolean => {
+    if (!targetUserId) return true;
+    return msg.user === targetUserId;
+  };
+
   const isNewUserMessage = (msg: { subtype?: string; ts?: string }): boolean => {
     if (msg.subtype) return false;
     if (lastSeenTs && msg.ts && msg.ts <= lastSeenTs) return false;
@@ -295,6 +299,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       if (!channelId) return;
       
       const botUserId = await getBotUserId();
+      const targetUserId = await getTargetUserId();
       
       const result = await slackClient.conversations.history({
         channel: channelId,
@@ -308,7 +313,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       }
       
       const newMessages = result.messages
-        .filter(msg => !isMessageFromBot(msg, botUserId) && isNewUserMessage(msg))
+        .filter(msg => !isMessageFromBot(msg, botUserId) && isMessageFromTargetUser(msg, targetUserId) && isNewUserMessage(msg))
         .sort((a, b) => parseFloat(a.ts || '0') - parseFloat(b.ts || '0'));
       
       if (newMessages.length === 0) {
