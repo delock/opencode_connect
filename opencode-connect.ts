@@ -203,6 +203,10 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   };
 
   const handleIncomingMessage = async (text: string): Promise<void> => {
+    if (text.startsWith('\\\\')) {
+      return;
+    }
+    
     if (pendingQuestion) {
       const trimmed = text.trim();
       const numMatch = trimmed.match(/^(\d+)$/);
