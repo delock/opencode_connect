@@ -154,8 +154,8 @@ git clone https://github.com/delock/opencode_connect
 ### 2. 配置OAuth & Permissions
 
 1. 点击左侧边栏的 "OAuth & Permissions"
-2. 复制 "Bot User OAuth Token" 并保存备用
-3. 根据提示选择 "Install to Workspace" 安装应用到您的工作区
+2. 点击 "Install to Workspace" 安装应用到您的工作区
+3. 安装完成后，复制 "Bot User OAuth Token" 并保存备用
 4. 建议创建一个专属的工作区来管理此集成
 
 ### 3. 生成应用级令牌
