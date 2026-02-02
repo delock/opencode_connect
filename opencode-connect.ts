@@ -207,6 +207,12 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       return;
     }
     
+    const trimmed = text.trim();
+    if (trimmed.startsWith('/')) {
+      await sendMessage(`_[${instanceId}] ⚠️ Command mode not supported_`);
+      return;
+    }
+    
     if (pendingQuestion) {
       const trimmed = text.trim();
       const numMatch = trimmed.match(/^(\d+)$/);
