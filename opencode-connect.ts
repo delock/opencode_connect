@@ -271,9 +271,10 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
 
   const isMessageFromAuthorizedUser = (msg: { user?: string }, adminUserId: string | null): boolean => {
     if (!msg.user) return false;
-    if (adminUserId && msg.user === adminUserId) return true;
-    if (delegatedUserId && msg.user === delegatedUserId) return true;
-    return false;
+    if (delegatedUserId) {
+      return msg.user === delegatedUserId;
+    }
+    return adminUserId ? msg.user === adminUserId : false;
   };
 
   const isMessageFromAdmin = (msg: { user?: string }, adminUserId: string | null): boolean => {
