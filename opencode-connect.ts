@@ -115,6 +115,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const workingDirectory = input.directory;
 
   let cachedUserId: string | null = null;
+  let userIdLookedUp = false;
   let cachedChannelId: string | null = null;
   let cachedBotUserId: string | null = null;
   let lastSeenTs: string | null = null;
@@ -150,9 +151,10 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   };
   
   const getTargetUserId = async (): Promise<string | null> => {
-    if (cachedUserId) return cachedUserId;
+    if (userIdLookedUp) return cachedUserId;
     if (!slackClient || !slackUsername) return null;
     cachedUserId = await findUserByName(slackClient, slackUsername);
+    userIdLookedUp = true;
     return cachedUserId;
   };
 
@@ -421,7 +423,21 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       try {
         const hostname = os.hostname();
         const path = input.directory;
-        await sendMessage(`*###opencode instance (${instanceId}) from ${hostname}:${path} started.###*`);
+        
+        let announcement = `*###opencode instance (${instanceId}) from ${hostname}:${path} started.###*`;
+        
+        if (slackUsername) {
+          const userId = await getTargetUserId();
+          if (userId) {
+            announcement += `\n_Listening for messages from: *${slackUsername}*_`;
+          } else {
+            announcement += `\n⚠️ *WARNING: User "${slackUsername}" not found in Slack workspace. No messages will be processed.*`;
+          }
+        } else if (channelMode) {
+          announcement += `\n⚠️ *WARNING: SLACK_USERNAME not set. No messages will be processed.*`;
+        }
+        
+        await sendMessage(announcement);
         await initializeLastSeenTs();
         
         if (channelMode) {
