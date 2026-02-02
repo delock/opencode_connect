@@ -310,6 +310,20 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const handleAdminCommand = async (msg: { text?: string; user?: string }, adminUserId: string): Promise<boolean> => {
     const text = msg.text?.trim() || '';
     
+    if (text === '\\status') {
+      const controller = delegatedUserId 
+        ? `被授权用户 (<@${delegatedUserId}>)` 
+        : `管理员 (<@${adminUserId}>)`;
+      const status = [
+        `*实例:* ${instanceId}`,
+        `*目录:* ${workingDirectory}`,
+        `*控制者:* ${controller}`,
+        `*Shell模式:* ${ENABLE_SHELL_MODE ? '已启用' : '已禁用'}`,
+      ].join('\n');
+      await sendMessage(`_[${instanceId}] 状态信息_\n${status}`);
+      return true;
+    }
+    
     if (text.startsWith('\\delegate ')) {
       if (msg.user !== adminUserId) {
         await sendMessage(`_[${instanceId}] ⚠️ 只有管理员可以使用 \\delegate 命令_`);
