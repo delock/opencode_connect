@@ -336,5 +336,8 @@ export OPENCODE_CONNECT_SHELL=1
 
 ### 注意事项
 
-- 管理员由 `SLACK_USERNAME` 环境变量指定
+- 管理员由启动时的 `SLACK_USERNAME` 环境变量指定，例如：
+  ```bash
+  SLACK_USERNAME=admin_user CONNECT_SLACK=#project-a opencode
+  ```
 - delegate 后管理员只能使用 `\revoke`，无法直接操作 OpenCode
