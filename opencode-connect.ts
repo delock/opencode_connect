@@ -122,7 +122,9 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   let lastActivityTime: number = Date.now();
   let pollTimerId: ReturnType<typeof setTimeout> | null = null;
   const pendingText = new Map<string, string>();
-  const instanceId = Math.floor(1000 + Math.random() * 9000);
+  const instanceId = channelMode 
+    ? Math.floor(1000 + Math.random() * 9000) 
+    : `DM${Math.floor(1000 + Math.random() * 9000)}`;
   
   interface PendingQuestion {
     sessionId: string;
@@ -200,10 +202,37 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     }
   };
 
+  const sendRelayMessage = async (targetChannelName: string, message: string): Promise<boolean> => {
+    if (!slackClient) return false;
+    
+    const channelId = await findChannelByName(slackClient, targetChannelName);
+    if (!channelId) return false;
+    
+    await sendToChannel(slackClient, channelId, `_opencode session [${instanceId}]_\n${message}`);
+    return true;
+  };
+
   const handleIncomingMessage = async (text: string): Promise<void> => {
     const trimmed = text.trim();
     if (trimmed.startsWith('/')) {
       await sendMessage(`_[${instanceId}] ⚠️ Command mode not supported_`);
+      return;
+    }
+    
+    if (!channelMode && trimmed.startsWith('@#')) {
+      const match = trimmed.match(/^@#(\S+)\s+(.+)$/s);
+      if (match) {
+        const targetChannel = match[1];
+        const relayMessage = match[2];
+        const success = await sendRelayMessage(targetChannel, relayMessage);
+        if (success) {
+          await sendMessage(`_[${instanceId}] ✅ 已转发到 #${targetChannel}_`);
+        } else {
+          await sendMessage(`_[${instanceId}] ⚠️ 找不到频道 #${targetChannel}_`);
+        }
+      } else {
+        await sendMessage(`_[${instanceId}] ⚠️ 用法: @#channel-name 消息内容_`);
+      }
       return;
     }
     
@@ -299,6 +328,11 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     }, interval);
   };
 
+  const extractDmBotCommand = (text: string): string | null => {
+    const match = text.match(/^_opencode session \[DM\d+\]_\n(.+)$/s);
+    return match ? match[1] : null;
+  };
+
   const pollMessages = async (): Promise<void> => {
     if (!slackClient) return;
     
@@ -320,24 +354,38 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         return;
       }
       
-      const newMessages = result.messages
+      const newUserMessages = result.messages
         .filter(msg => !isMessageFromBot(msg, botUserId) && isMessageFromTargetUser(msg, targetUserId) && isNewUserMessage(msg))
         .sort((a, b) => parseFloat(a.ts || '0') - parseFloat(b.ts || '0'));
       
-      if (newMessages.length === 0) {
+      const dmBotMessages = result.messages
+        .filter(msg => {
+          if (!msg.bot_id || !msg.text || !msg.ts) return false;
+          if (lastSeenTs && msg.ts <= lastSeenTs) return false;
+          return extractDmBotCommand(msg.text) !== null;
+        })
+        .sort((a, b) => parseFloat(a.ts || '0') - parseFloat(b.ts || '0'));
+      
+      const allMessages = [...newUserMessages, ...dmBotMessages]
+        .sort((a, b) => parseFloat(a.ts || '0') - parseFloat(b.ts || '0'));
+      
+      if (allMessages.length === 0) {
         scheduleNextPoll();
         return;
       }
 
       lastActivityTime = Date.now();
       
-      for (const msg of newMessages) {
+      for (const msg of allMessages) {
         if (!msg.text || !msg.ts) continue;
         
         lastSeenTs = msg.ts;
         
+        const dmCommand = extractDmBotCommand(msg.text);
+        const textToProcess = dmCommand || msg.text;
+        
         try {
-          await handleIncomingMessage(msg.text);
+          await handleIncomingMessage(textToProcess);
         } catch {}
       }
       
