@@ -1,5 +1,7 @@
 # Opencode-Slack连接插件安装配置文档
 
+[English Version](README_en.md)
+
 ## 演示视频
 
 ![opencode_connect_demo](https://github.com/delock/opencode_connect/raw/master/images/opencode_connect_demo.gif)
