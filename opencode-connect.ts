@@ -202,6 +202,24 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
 
   const handleIncomingMessage = async (text: string): Promise<void> => {
     const trimmed = text.trim();
+    
+    if (trimmed === '\\models') {
+      await opencodeClient.tui.appendPrompt({ body: { text: '/models' } });
+      await opencodeClient.tui.submitPrompt({});
+      return;
+    }
+    
+    if (trimmed.startsWith('\\model ')) {
+      const modelName = trimmed.slice('\\model '.length).trim();
+      if (!modelName) {
+        await sendMessage(`_[${instanceId}] ⚠️ 用法: \\model <model-name>_`);
+        return;
+      }
+      await opencodeClient.tui.appendPrompt({ body: { text: `/model ${modelName}` } });
+      await opencodeClient.tui.submitPrompt({});
+      return;
+    }
+    
     if (trimmed.startsWith('/')) {
       await sendMessage(`_[${instanceId}] ⚠️ Command mode not supported_`);
       return;
