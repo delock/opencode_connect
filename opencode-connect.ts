@@ -121,7 +121,9 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   let lastSeenTs: string | null = null;
   let lastActivityTime: number = Date.now();
   let pollTimerId: ReturnType<typeof setTimeout> | null = null;
+  let activeMainSessionId: string | null = null;
   const pendingText = new Map<string, string>();
+  const subSessionIds = new Set<string>();
   const instanceId = Math.floor(1000 + Math.random() * 9000);
   
   interface PendingQuestion {
@@ -203,21 +205,71 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const handleIncomingMessage = async (text: string): Promise<void> => {
     const trimmed = text.trim();
     
-    if (trimmed === '\\models') {
-      await opencodeClient.tui.appendPrompt({ body: { text: '/models' } });
-      await opencodeClient.tui.submitPrompt({});
-      return;
-    }
-    
-    if (trimmed.startsWith('\\model ')) {
-      const modelName = trimmed.slice('\\model '.length).trim();
-      if (!modelName) {
-        await sendMessage(`_[${instanceId}] ⚠️ 用法: \\model <model-name>_`);
+    if (trimmed.startsWith('\\') && trimmed.length > 1) {
+      const command = trimmed.slice(1);
+      
+      if (command === 'models') {
+        try {
+          const providersResult = await opencodeClient.config.providers({});
+          const configResult = await opencodeClient.config.get({});
+          
+          let currentModel = (configResult.data as { model?: string })?.model || 'unknown';
+          
+          if (activeMainSessionId) {
+            try {
+              const messagesResult = await opencodeClient.session.messages({ 
+                path: { id: activeMainSessionId },
+                query: { limit: 1 }
+              });
+              const messages = messagesResult.data as Array<{ model?: { providerID: string; modelID: string } }> | undefined;
+              if (messages && messages.length > 0 && messages[0].model) {
+                currentModel = `${messages[0].model.providerID}/${messages[0].model.modelID}`;
+              }
+            } catch {
+              // Session messages failed, use config model
+            }
+          }
+          
+          let modelList = `*Current model:* \`${currentModel}\`\n\n*Available models:*\n`;
+          const providersData = providersResult.data as { providers?: Array<{ id: string; name?: string; models?: Record<string, unknown> }> } | undefined;
+          const providers = providersData?.providers || [];
+          
+          if (providers.length === 0) {
+            modelList += `_(No providers available)_\n`;
+          } else {
+            for (const provider of providers) {
+              const models = provider.models || {};
+              const modelIds = Object.keys(models);
+              if (modelIds.length === 0) continue;
+              modelList += `\n*${provider.name || provider.id}*\n`;
+              for (const modelId of modelIds) {
+                const fullId = `${provider.id}/${modelId}`;
+                const marker = fullId === currentModel ? ' ✓' : '';
+                modelList += `  • \`${fullId}\`${marker}\n`;
+              }
+            }
+          }
+          await sendMessage(`_[${instanceId}]_\n${modelList}`);
+        } catch (err) {
+          await sendMessage(`_[${instanceId}] ⚠️ Failed to list models: ${String(err)}_`);
+        }
         return;
       }
-      await opencodeClient.tui.appendPrompt({ body: { text: `/model ${modelName}` } });
-      await opencodeClient.tui.submitPrompt({});
-      return;
+      
+      if (command.startsWith('model ')) {
+        const modelName = command.slice('model '.length).trim();
+        if (!modelName) {
+          await sendMessage(`_[${instanceId}] ⚠️ Usage: \\model <provider/model>_`);
+          return;
+        }
+        try {
+          await opencodeClient.config.update({ body: { model: modelName } });
+          await sendMessage(`_[${instanceId}] ✓ Model switched to \`${modelName}\`_`);
+        } catch (err) {
+          await sendMessage(`_[${instanceId}] ⚠️ Failed to switch model: ${err}_`);
+        }
+        return;
+      }
     }
     
     if (trimmed.startsWith('/')) {
@@ -434,9 +486,6 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     
     socketClient.start().catch(() => {});
   }
-
-  let activeMainSessionId: string | null = null;
-  const subSessionIds = new Set<string>();
 
   return {
     event: async ({ event }) => {
