@@ -234,10 +234,26 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           
           let currentModel = (configResult.data as { model?: string })?.model || 'unknown';
           
-          if (activeMainSessionId) {
+          // Try to get model from active session, or find the latest session
+          let sessionIdToQuery = activeMainSessionId;
+          if (!sessionIdToQuery) {
+            try {
+              const sessionsResult = await opencodeClient.session.list({});
+              const sessions = sessionsResult.data as Array<{ id: string; parentID?: string }> | undefined;
+              // Find the most recent non-sub session (first in list)
+              const mainSession = sessions?.find(s => !s.parentID);
+              if (mainSession) {
+                sessionIdToQuery = mainSession.id;
+              }
+            } catch {
+              // Session list failed, continue with config model
+            }
+          }
+          
+          if (sessionIdToQuery) {
             try {
               const messagesResult = await opencodeClient.session.messages({ 
-                path: { id: activeMainSessionId },
+                path: { id: sessionIdToQuery },
                 query: { limit: 1 }
               });
               const messages = messagesResult.data as Array<{ model?: { providerID: string; modelID: string } }> | undefined;
