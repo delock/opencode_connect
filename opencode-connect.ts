@@ -136,8 +136,14 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   }
   let pendingQuestion: PendingQuestion | null = null;
   
+  interface PendingPermission {
+    sessionId: string;
+    permissionId: string;
+    title: string;
+  }
+  let pendingPermission: PendingPermission | null = null;
+  
   const replyToQuestion = async (requestId: string, answers: string[][]): Promise<void> => {
-    // Use the SDK's internal client to make the request (it's properly configured)
     // @ts-ignore - accessing internal _client
     const internalClient = opencodeClient._client;
     const result = await internalClient.post({
@@ -147,6 +153,19 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     });
     if (result.error) {
       throw new Error(`Failed to reply to question: ${JSON.stringify(result.error)}`);
+    }
+  };
+  
+  const replyToPermission = async (sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject'): Promise<void> => {
+    // @ts-ignore - accessing internal _client
+    const internalClient = opencodeClient._client;
+    const result = await internalClient.post({
+      url: `/session/${sessionId}/permissions/${permissionId}`,
+      headers: { 'Content-Type': 'application/json' },
+      body: { response },
+    });
+    if (result.error) {
+      throw new Error(`Failed to reply to permission: ${JSON.stringify(result.error)}`);
     }
   };
   
@@ -275,6 +294,34 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     if (trimmed.startsWith('/')) {
       await sendMessage(`_[${instanceId}] ⚠️ Command mode not supported_`);
       return;
+    }
+    
+    if (pendingPermission) {
+      const trimmed = text.trim().toLowerCase();
+      const { sessionId, permissionId, title } = pendingPermission;
+      
+      let response: 'once' | 'always' | 'reject' | null = null;
+      if (trimmed === '1' || trimmed === 'y' || trimmed === 'yes' || trimmed === 'once') {
+        response = 'once';
+      } else if (trimmed === '2' || trimmed === 'always') {
+        response = 'always';
+      } else if (trimmed === '3' || trimmed === 'n' || trimmed === 'no' || trimmed === 'reject') {
+        response = 'reject';
+      }
+      
+      if (response) {
+        try {
+          await replyToPermission(sessionId, permissionId, response);
+          pendingPermission = null;
+          await sendMessage(`_[${instanceId}] ✓ Permission ${response === 'reject' ? 'denied' : 'granted'} (${response})_`);
+        } catch (error) {
+          await sendMessage(`_[${instanceId}] ⚠️ Failed to respond: ${error}_`);
+        }
+        return;
+      } else {
+        await sendMessage(`_[${instanceId}] ⚠️ Invalid response. Reply: 1/y/yes/once, 2/always, or 3/n/no/reject_`);
+        return;
+      }
     }
     
     if (pendingQuestion) {
@@ -556,6 +603,31 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           
           await sendMessage(msg);
         }
+      }
+      
+      if (event.type === 'permission.asked') {
+        const permission = event.properties as {
+          id: string;
+          sessionID: string;
+          permission: string;
+          patterns?: string[];
+        };
+        
+        let msg = `_[${instanceId}] 🔐 Permission Request_\n`;
+        msg += `*${permission.permission}*\n`;
+        if (permission.patterns && permission.patterns.length > 0) {
+          msg += `Pattern: \`${permission.patterns.join(', ')}\`\n`;
+        }
+        msg += `\n*1.* Yes (once)\n*2.* Always\n*3.* No (reject)\n`;
+        msg += `\n_Reply: 1/y/yes, 2/always, or 3/n/no_`;
+        
+        pendingPermission = {
+          sessionId: permission.sessionID,
+          permissionId: permission.id,
+          title: permission.permission,
+        };
+        
+        await sendMessage(msg);
       }
       
       if (event.type === 'session.created') {
