@@ -301,43 +301,6 @@ Channel模式通过轮询获取消息：
 
 ---
 
-## 模型管理命令
-
-通过Slack查看和切换AI模型。
-
-### 查看可用模型
-
-发送 `\models` 查看当前模型和所有可用模型：
-
-```
-\models
-```
-
-输出示例：
-```
-Current model: anthropic/claude-sonnet-4-20250514 ✓
-
-Available models:
-
-Anthropic
-  • anthropic/claude-sonnet-4-20250514 ✓
-  • anthropic/claude-opus-4-20250514
-
-OpenAI
-  • openai/gpt-4o
-  • openai/o1
-```
-
-### 切换模型
-
-发送 `\model <provider/model>` 切换模型：
-
-```
-\model anthropic/claude-opus-4-20250514
-```
-
----
-
 ## Shell模式
 
 Shell模式允许通过在消息前加 `!` 前缀来直接执行shell命令，绕过AI处理。

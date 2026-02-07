@@ -591,6 +591,8 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           sessionID: string;
           permission: string;
           patterns?: string[];
+          tool?: { messageID: string; callID: string };
+          metadata?: Record<string, unknown>;
         };
         
         let msg = `_[${instanceId}] 🔐 Permission Request_\n`;
@@ -598,6 +600,49 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         if (permission.patterns && permission.patterns.length > 0) {
           msg += `Pattern: \`${permission.patterns.join(', ')}\`\n`;
         }
+        
+        // Look up the tool call that triggered this permission
+        if (permission.tool?.messageID) {
+          try {
+            const messagesResult = await opencodeClient.session.messages({
+              path: { id: permission.sessionID },
+            });
+            const messages = messagesResult.data as Array<{
+              id: string;
+              parts?: Array<{
+                type: string;
+                id?: string;
+                toolCallId?: string;
+                toolName?: string;
+                args?: Record<string, unknown>;
+                input?: string;
+              }>;
+            }> | undefined;
+            
+            const targetMsg = messages?.find(m => m.id === permission.tool!.messageID);
+            if (targetMsg?.parts) {
+              const toolPart = targetMsg.parts.find(p => 
+                (p.type === 'tool-invocation' || p.type === 'tool-call') &&
+                (p.id === permission.tool!.callID || p.toolCallId === permission.tool!.callID)
+              );
+              if (toolPart) {
+                if (toolPart.toolName) {
+                  msg += `Tool: \`${toolPart.toolName}\`\n`;
+                }
+                // Show args/input (truncated)
+                const argsObj = toolPart.args || (toolPart.input ? { input: toolPart.input } : null);
+                if (argsObj) {
+                  const argsStr = JSON.stringify(argsObj);
+                  const truncated = argsStr.length > 500 ? argsStr.slice(0, 500) + '...' : argsStr;
+                  msg += `Args: \`${truncated}\`\n`;
+                }
+              }
+            }
+          } catch {
+            // Failed to look up tool details, continue without them
+          }
+        }
+        
         msg += `\n*1.* Yes (once)\n*2.* Always\n*3.* No (reject)\n`;
         msg += `\n_Reply: 1/y/yes, 2/always, or 3/n/no_`;
         

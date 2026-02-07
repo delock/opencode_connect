@@ -299,43 +299,6 @@ When OpenCode needs to access external directories or perform operations requiri
 
 ---
 
-## Model Management Commands
-
-View and switch AI models via Slack.
-
-### View Available Models
-
-Send `\models` to view the current model and all available models:
-
-```
-\models
-```
-
-Example output:
-```
-Current model: anthropic/claude-sonnet-4-20250514 ✓
-
-Available models:
-
-Anthropic
-  • anthropic/claude-sonnet-4-20250514 ✓
-  • anthropic/claude-opus-4-20250514
-
-OpenAI
-  • openai/gpt-4o
-  • openai/o1
-```
-
-### Switch Model
-
-Send `\model <provider/model>` to switch models:
-
-```
-\model anthropic/claude-opus-4-20250514
-```
-
----
-
 ## Shell Mode
 
 Shell mode allows executing shell commands directly by prefixing messages with `!`, bypassing AI processing.
