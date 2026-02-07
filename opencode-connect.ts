@@ -256,72 +256,9 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     if (trimmed.startsWith('\\') && trimmed.length > 1) {
       const command = trimmed.slice(1);
       
-      if (command === 'models') {
-        try {
-          const providersResult = await opencodeClient.config.providers({});
-          const configResult = await opencodeClient.config.get({});
-          
-          let currentModel = (configResult.data as { model?: string })?.model || 'unknown';
-          
-          // Try to get model from active session, or find the latest session
-          let sessionIdToQuery = activeMainSessionId;
-          if (!sessionIdToQuery) {
-            try {
-              const sessionsResult = await opencodeClient.session.list({});
-              const sessions = sessionsResult.data as Array<{ id: string; parentID?: string }> | undefined;
-              // Find the most recent non-sub session (first in list)
-              const mainSession = sessions?.find(s => !s.parentID);
-              if (mainSession) {
-                sessionIdToQuery = mainSession.id;
-              }
-            } catch {
-              // Session list failed, continue with config model
-            }
-          }
-          
-          if (sessionIdToQuery) {
-            try {
-              const messagesResult = await opencodeClient.session.messages({ 
-                path: { id: sessionIdToQuery },
-                query: { limit: 1 }
-              });
-              const messages = messagesResult.data as Array<{ model?: { providerID: string; modelID: string } }> | undefined;
-              if (messages && messages.length > 0 && messages[0].model) {
-                currentModel = `${messages[0].model.providerID}/${messages[0].model.modelID}`;
-              }
-            } catch {
-              // Session messages failed, use config model
-            }
-          }
-          
-          let modelList = `*Current model:* \`${currentModel}\`\n\n*Available models:*\n`;
-          const providersData = providersResult.data as { providers?: Array<{ id: string; name?: string; models?: Record<string, unknown> }> } | undefined;
-          const providers = providersData?.providers || [];
-          
-          if (providers.length === 0) {
-            modelList += `_(No providers available)_\n`;
-          } else {
-            for (const provider of providers) {
-              const models = provider.models || {};
-              const modelIds = Object.keys(models);
-              if (modelIds.length === 0) continue;
-              modelList += `\n*${provider.name || provider.id}*\n`;
-              for (const modelId of modelIds) {
-                const fullId = `${provider.id}/${modelId}`;
-                const marker = fullId === currentModel ? ' ✓' : '';
-                modelList += `  • \`${fullId}\`${marker}\n`;
-              }
-            }
-          }
-          await sendMessage(`_[${instanceId}]_\n${modelList}`);
-        } catch (err) {
-          await sendMessage(`_[${instanceId}] ⚠️ Failed to list models: ${String(err)}_`);
-        }
-        return;
-      }
+      // Add future backslash commands here
       
-      // Unknown backslash command
-      await sendMessage(`_[${instanceId}] ⚠️ Unknown command: \\${command}. Available: \\models_`);
+      await sendMessage(`_[${instanceId}] ⚠️ Unknown command: \\${command}_`);
       return;
     }
     
