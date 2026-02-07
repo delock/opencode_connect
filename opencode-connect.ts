@@ -125,6 +125,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const pendingText = new Map<string, string>();
   const subSessionIds = new Set<string>();
   const instanceId = Math.floor(1000 + Math.random() * 9000);
+  const processedMessageIds = new Set<string>(); // Dedup for DM mode
   
   interface PendingQuestion {
     sessionId: string;
@@ -298,12 +299,11 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           return;
         }
         try {
-          // Use TUI to send /model command for runtime switching
-          await opencodeClient.tui.appendPrompt({ body: { text: `/model ${modelName}` } });
-          await opencodeClient.tui.submitPrompt({});
-          await sendMessage(`_[${instanceId}] ✓ Switching model to \`${modelName}\`..._`);
+          // Update config - will take effect on new sessions
+          await opencodeClient.config.update({ body: { model: modelName } });
+          await sendMessage(`_[${instanceId}] ✓ Model set to \`${modelName}\`. Start a new session (ctrl+n) for it to take effect._`);
         } catch (err) {
-          await sendMessage(`_[${instanceId}] ⚠️ Failed to switch model: ${err}_`);
+          await sendMessage(`_[${instanceId}] ⚠️ Failed to set model: ${err}_`);
         }
         return;
       }
@@ -536,6 +536,18 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       if (event.subtype) return;
       if (event.bot_id) return;
       if (event.channel_type !== 'im') return;
+      
+      // Dedup: use client_msg_id or ts as unique identifier
+      const msgId = event.client_msg_id || event.ts;
+      if (msgId) {
+        if (processedMessageIds.has(msgId)) return;
+        processedMessageIds.add(msgId);
+        // Keep set size bounded
+        if (processedMessageIds.size > 100) {
+          const first = processedMessageIds.values().next().value;
+          if (first) processedMessageIds.delete(first);
+        }
+      }
       
       const targetChannelId = await getTargetChannelId();
       if (!targetChannelId) return;
