@@ -320,40 +320,9 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
         return;
       }
       
-      if (command.startsWith('model ')) {
-        const modelName = command.slice('model '.length).trim();
-        if (!modelName) {
-          await sendMessage(`_[${instanceId}] ⚠️ Usage: \\model <provider/model>_`);
-          return;
-        }
-        try {
-          // Find current session to execute command on
-          let sessionId = activeMainSessionId;
-          if (!sessionId) {
-            try {
-              const sessionsResult = await opencodeClient.session.list({});
-              const sessions = sessionsResult.data as Array<{ id: string; parentID?: string }> | undefined;
-              const mainSession = sessions?.find(s => !s.parentID);
-              if (mainSession) sessionId = mainSession.id;
-            } catch {}
-          }
-          if (!sessionId) {
-            // No session exists, create one
-            const newSession = await opencodeClient.session.create({ body: {} });
-            sessionId = (newSession.data as { id: string }).id;
-            activeMainSessionId = sessionId;
-          }
-          // Use session.command() API to execute /model slash command
-          await opencodeClient.session.command({
-            path: { id: sessionId },
-            body: { command: 'model', arguments: modelName },
-          });
-          await sendMessage(`_[${instanceId}] ✓ Model switched to \`${modelName}\`_`);
-        } catch (err) {
-          await sendMessage(`_[${instanceId}] ⚠️ Failed to switch model: ${err}_`);
-        }
-        return;
-      }
+      // Unknown backslash command
+      await sendMessage(`_[${instanceId}] ⚠️ Unknown command: \\${command}. Available: \\models_`);
+      return;
     }
     
     if (trimmed.startsWith('/')) {
