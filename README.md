@@ -270,6 +270,74 @@ Channel模式通过轮询获取消息：
 
 ---
 
+## 权限请求转发
+
+当OpenCode需要访问外部目录或执行需要权限的操作时，权限请求会自动转发到Slack。
+
+### 工作原理
+
+1. OpenCode请求权限时（如访问外部目录），请求会发送到Slack
+2. 您会收到类似这样的消息：
+   ```
+   🔐 Permission Request
+   access external directory
+   Pattern: /path/to/directory
+
+   1. Yes (once)
+   2. Always
+   3. No (reject)
+
+   Reply: 1/y/yes, 2/always, or 3/n/no
+   ```
+3. 直接回复数字或关键词即可响应
+
+### 响应选项
+
+| 回复 | 含义 |
+|------|------|
+| `1`, `y`, `yes`, `once` | 仅本次允许 |
+| `2`, `always` | 始终允许（此类权限） |
+| `3`, `n`, `no`, `reject` | 拒绝 |
+
+---
+
+## 模型管理命令
+
+通过Slack查看和切换AI模型。
+
+### 查看可用模型
+
+发送 `\models` 查看当前模型和所有可用模型：
+
+```
+\models
+```
+
+输出示例：
+```
+Current model: anthropic/claude-sonnet-4-20250514 ✓
+
+Available models:
+
+Anthropic
+  • anthropic/claude-sonnet-4-20250514 ✓
+  • anthropic/claude-opus-4-20250514
+
+OpenAI
+  • openai/gpt-4o
+  • openai/o1
+```
+
+### 切换模型
+
+发送 `\model <provider/model>` 切换模型：
+
+```
+\model anthropic/claude-opus-4-20250514
+```
+
+---
+
 ## Shell模式
 
 Shell模式允许通过在消息前加 `!` 前缀来直接执行shell命令，绕过AI处理。

@@ -268,6 +268,74 @@ For real-time responses, use DM mode (but only one DM instance can run at a time
 
 ---
 
+## Permission Request Forwarding
+
+When OpenCode needs to access external directories or perform operations requiring permission, the permission requests are automatically forwarded to Slack.
+
+### How It Works
+
+1. When OpenCode requests permission (e.g., accessing external directories), the request is sent to Slack
+2. You'll receive a message like:
+   ```
+   🔐 Permission Request
+   access external directory
+   Pattern: /path/to/directory
+
+   1. Yes (once)
+   2. Always
+   3. No (reject)
+
+   Reply: 1/y/yes, 2/always, or 3/n/no
+   ```
+3. Simply reply with a number or keyword to respond
+
+### Response Options
+
+| Reply | Meaning |
+|-------|---------|
+| `1`, `y`, `yes`, `once` | Allow once |
+| `2`, `always` | Always allow (for this type of permission) |
+| `3`, `n`, `no`, `reject` | Deny |
+
+---
+
+## Model Management Commands
+
+View and switch AI models via Slack.
+
+### View Available Models
+
+Send `\models` to view the current model and all available models:
+
+```
+\models
+```
+
+Example output:
+```
+Current model: anthropic/claude-sonnet-4-20250514 ✓
+
+Available models:
+
+Anthropic
+  • anthropic/claude-sonnet-4-20250514 ✓
+  • anthropic/claude-opus-4-20250514
+
+OpenAI
+  • openai/gpt-4o
+  • openai/o1
+```
+
+### Switch Model
+
+Send `\model <provider/model>` to switch models:
+
+```
+\model anthropic/claude-opus-4-20250514
+```
+
+---
+
 ## Shell Mode
 
 Shell mode allows executing shell commands directly by prefixing messages with `!`, bypassing AI processing.
