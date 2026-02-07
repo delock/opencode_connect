@@ -298,8 +298,10 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           return;
         }
         try {
-          await opencodeClient.config.update({ body: { model: modelName } });
-          await sendMessage(`_[${instanceId}] ✓ Model switched to \`${modelName}\`_`);
+          // Use TUI to send /model command for runtime switching
+          await opencodeClient.tui.appendPrompt({ body: { text: `/model ${modelName}` } });
+          await opencodeClient.tui.submitPrompt({});
+          await sendMessage(`_[${instanceId}] ✓ Switching model to \`${modelName}\`..._`);
         } catch (err) {
           await sendMessage(`_[${instanceId}] ⚠️ Failed to switch model: ${err}_`);
         }
