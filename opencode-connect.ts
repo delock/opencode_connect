@@ -125,7 +125,18 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
   const pendingText = new Map<string, string>();
   const subSessionIds = new Set<string>();
   const instanceId = Math.floor(1000 + Math.random() * 9000);
-  const processedMessageIds = new Set<string>(); // Dedup for DM mode
+  const processedMessageIds = new Set<string>(); // Dedup for both DM and channel mode
+  
+  const trackProcessedMessage = (msgId: string): boolean => {
+    if (processedMessageIds.has(msgId)) return false;
+    processedMessageIds.add(msgId);
+    // Keep set size bounded
+    if (processedMessageIds.size > 200) {
+      const first = processedMessageIds.values().next().value;
+      if (first) processedMessageIds.delete(first);
+    }
+    return true;
+  };
   
   interface PendingQuestion {
     sessionId: string;
@@ -469,6 +480,10 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       for (const msg of newMessages) {
         if (!msg.text || !msg.ts) continue;
         
+        // Dedup: skip already processed messages
+        const msgId = (msg as { client_msg_id?: string }).client_msg_id || msg.ts;
+        if (!msgId || !trackProcessedMessage(msgId)) continue;
+        
         lastSeenTs = msg.ts;
         
         try {
@@ -539,15 +554,7 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       
       // Dedup: use client_msg_id or ts as unique identifier
       const msgId = event.client_msg_id || event.ts;
-      if (msgId) {
-        if (processedMessageIds.has(msgId)) return;
-        processedMessageIds.add(msgId);
-        // Keep set size bounded
-        if (processedMessageIds.size > 100) {
-          const first = processedMessageIds.values().next().value;
-          if (first) processedMessageIds.delete(first);
-        }
-      }
+      if (!msgId || !trackProcessedMessage(msgId)) return;
       
       const targetChannelId = await getTargetChannelId();
       if (!targetChannelId) return;
