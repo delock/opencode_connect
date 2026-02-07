@@ -233,7 +233,24 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
     }
   };
 
+  let isProcessingMessage = false;
+
   const handleIncomingMessage = async (text: string): Promise<void> => {
+    if (isProcessingMessage) {
+      // Queue or skip? For now, log and skip to prevent duplication
+      const fs = await import('fs');
+      fs.appendFileSync('/tmp/opencode-dedup.log', `[${new Date().toISOString()}] SKIPPED (busy): ${text.slice(0, 80)}\n`);
+      return;
+    }
+    isProcessingMessage = true;
+    try {
+      await handleIncomingMessageInner(text);
+    } finally {
+      isProcessingMessage = false;
+    }
+  };
+
+  const handleIncomingMessageInner = async (text: string): Promise<void> => {
     const trimmed = text.trim();
     
     if (trimmed.startsWith('\\') && trimmed.length > 1) {
@@ -499,11 +516,12 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
       for (const msg of newMessages) {
         if (!msg.text || !msg.ts) continue;
         
+        // Always advance lastSeenTs to avoid re-fetching
+        lastSeenTs = msg.ts;
+        
         // Dedup: skip already processed messages
         const msgId = (msg as { client_msg_id?: string }).client_msg_id || msg.ts;
         if (!msgId || !trackProcessedMessage(msgId)) continue;
-        
-        lastSeenTs = msg.ts;
         
         try {
           await handleIncomingMessage(msg.text);
