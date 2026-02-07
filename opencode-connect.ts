@@ -310,11 +310,30 @@ const OpenCodeSlackSyncPlugin: Plugin = async (input: PluginInput): Promise<Hook
           return;
         }
         try {
-          // Update config - will take effect on new sessions
-          await opencodeClient.config.update({ body: { model: modelName } });
-          await sendMessage(`_[${instanceId}] ✓ Model set to \`${modelName}\`. Start a new session (ctrl+n) for it to take effect._`);
+          // Find current session to execute command on
+          let sessionId = activeMainSessionId;
+          if (!sessionId) {
+            try {
+              const sessionsResult = await opencodeClient.session.list({});
+              const sessions = sessionsResult.data as Array<{ id: string; parentID?: string }> | undefined;
+              const mainSession = sessions?.find(s => !s.parentID);
+              if (mainSession) sessionId = mainSession.id;
+            } catch {}
+          }
+          if (!sessionId) {
+            // No session exists, create one
+            const newSession = await opencodeClient.session.create({ body: {} });
+            sessionId = (newSession.data as { id: string }).id;
+            activeMainSessionId = sessionId;
+          }
+          // Use session.command() API to execute /model slash command
+          await opencodeClient.session.command({
+            path: { id: sessionId },
+            body: { command: 'model', arguments: modelName },
+          });
+          await sendMessage(`_[${instanceId}] ✓ Model switched to \`${modelName}\`_`);
         } catch (err) {
-          await sendMessage(`_[${instanceId}] ⚠️ Failed to set model: ${err}_`);
+          await sendMessage(`_[${instanceId}] ⚠️ Failed to switch model: ${err}_`);
         }
         return;
       }
