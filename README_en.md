@@ -299,6 +299,33 @@ When OpenCode needs to access external directories or perform operations requiri
 
 ---
 
+## Question & Answer Forwarding
+
+When OpenCode asks the user a question (e.g., choosing an action, confirming options), the question is automatically forwarded to Slack, and you can answer directly from Slack.
+
+### How It Works
+
+1. When OpenCode asks a question, you'll receive a message with options in Slack:
+   ```
+   ❓ Please choose an action
+   1. Option A - description
+   2. Option B - description
+   3. Custom answer
+
+   Reply with a number (1-2 or 3 for custom)
+   ```
+2. Reply with the corresponding number to select
+3. If custom answers are supported, select the last option and then type your custom response
+
+### Response Methods
+
+| Action | Method |
+|--------|--------|
+| Select an option | Reply with the number (e.g., `1`, `2`) |
+| Custom answer | Select the custom option, then type your text |
+
+---
+
 ## Shell Mode
 
 Shell mode allows executing shell commands directly by prefixing messages with `!`, bypassing AI processing.
