@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCode Connect</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface2: #0f3460;
+  --accent: #e94560;
+  --text: #eee;
+  --text-dim: #999;
+  --success: #4caf50;
+  --warn: #ff9800;
+  --error: #f44336;
+  --border: #333;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+#config-panel {
+  background: var(--surface);
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+#config-panel.hidden { display: none; }
+#config-panel h2 { margin-bottom: 12px; font-size: 16px; }
+.config-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.config-row label {
+  min-width: 160px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.config-row input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { opacity: 0.9; }
+.btn-secondary { background: var(--surface2); color: var(--text); }
+.btn-secondary:hover { opacity: 0.9; }
+.btn-small { padding: 4px 12px; font-size: 12px; }
+.btn-success { background: var(--success); color: #fff; }
+.btn-warn { background: var(--warn); color: #000; }
+.btn-error { background: var(--error); color: #fff; }
+#toolbar {
+  background: var(--surface);
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+#status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--error);
+}
+#status-dot.connected { background: var(--success); }
+#status-dot.polling { background: var(--warn); }
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.msg {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-out {
+  align-self: flex-end;
+  background: var(--surface2);
+}
+.msg-in {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.msg-status {
+  align-self: center;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-style: italic;
+}
+.msg-error {
+  align-self: center;
+  background: transparent;
+  color: var(--error);
+  font-size: 13px;
+}
+.msg-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.msg pre {
+  background: var(--bg);
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.msg-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+#input-area {
+  background: var(--surface);
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+}
+#msg-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  min-height: 40px;
+  max-height: 120px;
+}
+#msg-input:focus { outline: none; border-color: var(--accent); }
+#send-btn {
+  align-self: flex-end;
+}
+@media (max-width: 600px) {
+  .config-row { flex-direction: column; }
+  .config-row label { min-width: auto; }
+  .msg { max-width: 95%; }
+}
+</style>
+</head>
+<body>
+
+<!-- Config Panel -->
+<div id="config-panel">
+  <h2>OpenCode Connect - Configuration</h2>
+  <div class="config-row">
+    <label>AWS Region</label>
+    <input id="cfg-region" placeholder="us-east-1" />
+  </div>
+  <div class="config-row">
+    <label>Cognito Identity Pool ID</label>
+    <input id="cfg-cognito" placeholder="us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+  </div>
+  <div class="config-row">
+    <label>SQS Queue (to web)</label>
+    <input id="cfg-queue-to-web" placeholder="https://sqs.us-east-1.amazonaws.com/123456/opencode-to-web" />
+  </div>
+  <div class="config-row">
+    <label>SQS Queue (from web)</label>
+    <input id="cfg-queue-from-web" placeholder="https://sqs.us-east-1.amazonaws.com/123456/web-to-opencode" />
+  </div>
+  <div class="config-row" style="justify-content: flex-end;">
+    <button class="btn btn-primary" onclick="saveConfig()">Save & Connect</button>
+  </div>
+</div>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <div id="status-indicator">
+    <div id="status-dot"></div>
+    <span id="status-text">Disconnected</span>
+  </div>
+  <div>
+    <button class="btn btn-secondary btn-small" onclick="toggleConfig()">Config</button>
+    <button class="btn btn-secondary btn-small" onclick="clearMessages()">Clear</button>
+  </div>
+</div>
+
+<!-- Messages -->
+<div id="messages"></div>
+
+<!-- Input -->
+<div id="input-area">
+  <textarea id="msg-input" placeholder="Type a message or !command..." rows="1"></textarea>
+  <button id="send-btn" class="btn btn-primary" onclick="sendPrompt()">Send</button>
+</div>
+
+<!-- AWS SDK from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@aws-sdk/client-sqs@3.620.0/dist-es/bundle.min.js" type="module" onerror="loadFallback()"></script>
+
+<script type="module">
+// ============================================================
+// AWS SDK imports (ESM from CDN)
+// ============================================================
+import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand } from 'https://cdn.jsdelivr.net/npm/@aws-sdk/client-sqs@3.620.0/+esm';
+import { fromCognitoIdentityPool } from 'https://cdn.jsdelivr.net/npm/@aws-sdk/credential-providers@3.620.0/+esm';
+
+// ============================================================
+// State
+// ============================================================
+let sqsClient = null;
+let queueToWeb = '';
+let queueFromWeb = '';
+let polling = false;
+let pollAbort = null;
+
+// Expose functions to inline onclick handlers
+window.saveConfig = saveConfig;
+window.toggleConfig = toggleConfig;
+window.clearMessages = clearMessages;
+window.sendPrompt = sendPrompt;
+window.sendPermissionReply = sendPermissionReply;
+window.sendQuestionReply = sendQuestionReply;
+
+// ============================================================
+// Config
+// ============================================================
+function loadConfig() {
+  const saved = localStorage.getItem('opencode_connect_config');
+  if (!saved) return null;
+  try { return JSON.parse(saved); } catch { return null; }
+}
+
+function saveConfig() {
+  const config = {
+    region: document.getElementById('cfg-region').value.trim(),
+    cognitoPoolId: document.getElementById('cfg-cognito').value.trim(),
+    queueToWeb: document.getElementById('cfg-queue-to-web').value.trim(),
+    queueFromWeb: document.getElementById('cfg-queue-from-web').value.trim(),
+  };
+
+  if (!config.region || !config.cognitoPoolId || !config.queueToWeb || !config.queueFromWeb) {
+    alert('All fields are required.');
+    return;
+  }
+
+  localStorage.setItem('opencode_connect_config', JSON.stringify(config));
+  document.getElementById('config-panel').classList.add('hidden');
+  connect(config);
+}
+
+function populateConfigForm(config) {
+  if (!config) return;
+  document.getElementById('cfg-region').value = config.region || '';
+  document.getElementById('cfg-cognito').value = config.cognitoPoolId || '';
+  document.getElementById('cfg-queue-to-web').value = config.queueToWeb || '';
+  document.getElementById('cfg-queue-from-web').value = config.queueFromWeb || '';
+}
+
+function toggleConfig() {
+  const panel = document.getElementById('config-panel');
+  panel.classList.toggle('hidden');
+}
+
+// ============================================================
+// SQS connection
+// ============================================================
+function connect(config) {
+  // Stop existing polling
+  if (pollAbort) {
+    pollAbort.abort();
+    pollAbort = null;
+  }
+  polling = false;
+
+  try {
+    const credentials = fromCognitoIdentityPool({
+      identityPoolId: config.cognitoPoolId,
+      clientConfig: { region: config.region },
+    });
+
+    sqsClient = new SQSClient({
+      region: config.region,
+      credentials,
+    });
+
+    queueToWeb = config.queueToWeb;   // plugin sends here, we read
+    queueFromWeb = config.queueFromWeb; // we send here, plugin reads
+
+    setStatus('polling', 'Connecting...');
+    startPolling();
+  } catch (err) {
+    setStatus('error', 'Connection failed');
+    addMessage('error', `Connection error: ${err.message}`);
+  }
+}
+
+// ============================================================
+// Polling
+// ============================================================
+async function startPolling() {
+  if (polling) return;
+  polling = true;
+  pollAbort = new AbortController();
+
+  setStatus('polling', 'Polling...');
+
+  while (polling && !pollAbort.signal.aborted) {
+    try {
+      const result = await sqsClient.send(new ReceiveMessageCommand({
+        QueueUrl: queueToWeb,
+        MaxNumberOfMessages: 10,
+        WaitTimeSeconds: 20,
+      }));
+
+      if (!polling) break;
+      setStatus('connected', 'Connected');
+
+      if (result.Messages) {
+        for (const msg of result.Messages) {
+          if (!msg.Body || !msg.ReceiptHandle) continue;
+          try {
+            const parsed = JSON.parse(msg.Body);
+            handleIncoming(parsed);
+          } catch {
+            // skip invalid
+          }
+          // Delete after processing
+          try {
+            await sqsClient.send(new DeleteMessageCommand({
+              QueueUrl: queueToWeb,
+              ReceiptHandle: msg.ReceiptHandle,
+            }));
+          } catch {
+            // deletion failed, will reappear
+          }
+        }
+      }
+    } catch (err) {
+      if (pollAbort?.signal.aborted) break;
+      setStatus('error', 'Poll error');
+      addMessage('error', `Poll error: ${err.message}`);
+      // Wait before retry
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+}
+
+// ============================================================
+// Send messages
+// ============================================================
+async function sendToSqs(msg) {
+  if (!sqsClient) {
+    addMessage('error', 'Not connected. Configure settings first.');
+    return;
+  }
+  try {
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: queueFromWeb,
+      MessageBody: JSON.stringify(msg),
+    }));
+  } catch (err) {
+    addMessage('error', `Send error: ${err.message}`);
+  }
+}
+
+async function sendPrompt() {
+  const input = document.getElementById('msg-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  autoResizeInput();
+
+  // Determine message type
+  if (text.startsWith('!') && text.length > 1) {
+    addMessage('out', `! ${text.slice(1)}`);
+    await sendToSqs({ type: 'shell', command: text.slice(1) });
+  } else {
+    addMessage('out', text);
+    await sendToSqs({ type: 'prompt', text });
+  }
+}
+
+window.sendPermissionReply = async function(permissionId, response) {
+  addMessage('out', `Permission: ${response}`);
+  // Disable buttons in the permission message
+  const btns = document.querySelectorAll(`[data-perm-id="${permissionId}"]`);
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+  await sendToSqs({ type: 'permission_reply', permissionId, response });
+};
+
+window.sendQuestionReply = async function(requestId, answers) {
+  const label = Array.isArray(answers[0]) ? answers[0][0] : answers;
+  addMessage('out', `Answer: ${label}`);
+  // Disable buttons
+  const btns = document.querySelectorAll(`[data-q-id="${requestId}"]`);
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+  await sendToSqs({ type: 'question_reply', requestId, answers });
+};
+
+// ============================================================
+// Handle incoming messages
+// ============================================================
+function handleIncoming(msg) {
+  switch (msg.type) {
+    case 'status':
+      addMessage('status', `Instance ${msg.instanceId} connected from ${msg.hostname}:${msg.directory}`);
+      break;
+
+    case 'output':
+      addMessage('in', msg.text || '(empty response)', 'OpenCode');
+      break;
+
+    case 'permission': {
+      const div = document.createElement('div');
+      div.className = 'msg msg-in';
+
+      let html = `<div class="msg-label">Permission Request</div>`;
+      html += `<strong>${escHtml(msg.permission || '')}</strong>\n`;
+      if (msg.patterns && msg.patterns.length) {
+        html += `Pattern: <code>${escHtml(msg.patterns.join(', '))}</code>\n`;
+      }
+      if (msg.toolName) html += `Tool: <code>${escHtml(msg.toolName)}</code>\n`;
+      if (msg.toolArgs) html += `Args: <code>${escHtml(truncate(msg.toolArgs, 200))}</code>\n`;
+      html += `<div class="msg-actions">`;
+      html += `<button class="btn btn-small btn-success" data-perm-id="${escAttr(msg.permissionId)}" onclick="sendPermissionReply('${escAttr(msg.permissionId)}','once')">Allow Once</button>`;
+      html += `<button class="btn btn-small btn-warn" data-perm-id="${escAttr(msg.permissionId)}" onclick="sendPermissionReply('${escAttr(msg.permissionId)}','always')">Always Allow</button>`;
+      html += `<button class="btn btn-small btn-error" data-perm-id="${escAttr(msg.permissionId)}" onclick="sendPermissionReply('${escAttr(msg.permissionId)}','reject')">Reject</button>`;
+      html += `</div>`;
+
+      div.innerHTML = html;
+      appendToMessages(div);
+      break;
+    }
+
+    case 'question': {
+      const div = document.createElement('div');
+      div.className = 'msg msg-in';
+
+      let html = `<div class="msg-label">Question</div>`;
+      if (msg.header) html += `<strong>${escHtml(msg.header)}</strong>\n`;
+      html += `${escHtml(msg.question || '')}\n`;
+
+      html += `<div class="msg-actions">`;
+      const options = msg.options || [];
+      for (let i = 0; i < options.length; i++) {
+        const opt = options[i];
+        const label = opt.label + (opt.description ? ` - ${opt.description}` : '');
+        html += `<button class="btn btn-small btn-secondary" data-q-id="${escAttr(msg.requestId)}" onclick="sendQuestionReply('${escAttr(msg.requestId)}', [['${escAttr(opt.label)}']])">${i + 1}. ${escHtml(label)}</button>`;
+      }
+      html += `</div>`;
+
+      if (msg.custom) {
+        html += `<div style="margin-top:8px;display:flex;gap:6px;">`;
+        html += `<input type="text" id="custom-${escAttr(msg.requestId)}" placeholder="Custom answer..." style="flex:1;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:13px;" />`;
+        html += `<button class="btn btn-small btn-primary" data-q-id="${escAttr(msg.requestId)}" onclick="var v=document.getElementById('custom-${escAttr(msg.requestId)}').value.trim();if(v)sendQuestionReply('${escAttr(msg.requestId)}',[[v]]);">Send</button>`;
+        html += `</div>`;
+      }
+
+      div.innerHTML = html;
+      appendToMessages(div);
+      break;
+    }
+
+    case 'shell_output': {
+      let text = `$ ${msg.command}\n`;
+      text += msg.output || '(no output)';
+      if (msg.exitCode !== 0) text += `\n(exit code: ${msg.exitCode})`;
+      addMessageWithPre('in', text, 'Shell');
+      break;
+    }
+
+    case 'error':
+      addMessage('error', msg.message || 'Unknown error');
+      break;
+
+    default:
+      addMessage('status', `Unknown message type: ${msg.type}`);
+  }
+}
+
+// ============================================================
+// UI helpers
+// ============================================================
+function setStatus(state, text) {
+  const dot = document.getElementById('status-dot');
+  const label = document.getElementById('status-text');
+  dot.className = state === 'connected' ? 'connected' : state === 'polling' ? 'polling' : '';
+  label.textContent = text;
+}
+
+function addMessage(type, text, label) {
+  const div = document.createElement('div');
+  if (type === 'out') {
+    div.className = 'msg msg-out';
+    div.textContent = text;
+  } else if (type === 'in') {
+    div.className = 'msg msg-in';
+    if (label) {
+      const lbl = document.createElement('div');
+      lbl.className = 'msg-label';
+      lbl.textContent = label;
+      div.appendChild(lbl);
+    }
+    div.appendChild(document.createTextNode(text));
+  } else if (type === 'status') {
+    div.className = 'msg msg-status';
+    div.textContent = text;
+  } else if (type === 'error') {
+    div.className = 'msg msg-error';
+    div.textContent = text;
+  }
+  appendToMessages(div);
+}
+
+function addMessageWithPre(type, text, label) {
+  const div = document.createElement('div');
+  div.className = 'msg msg-in';
+  if (label) {
+    const lbl = document.createElement('div');
+    lbl.className = 'msg-label';
+    lbl.textContent = label;
+    div.appendChild(lbl);
+  }
+  const pre = document.createElement('pre');
+  pre.textContent = text;
+  div.appendChild(pre);
+  appendToMessages(div);
+}
+
+function appendToMessages(el) {
+  const container = document.getElementById('messages');
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
+function clearMessages() {
+  document.getElementById('messages').innerHTML = '';
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function escAttr(s) {
+  return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function truncate(s, max) {
+  return s && s.length > max ? s.slice(0, max) + '...' : s;
+}
+
+// ============================================================
+// Input handling
+// ============================================================
+const input = document.getElementById('msg-input');
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendPrompt();
+  }
+});
+
+input.addEventListener('input', autoResizeInput);
+
+function autoResizeInput() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+}
+
+// ============================================================
+// Init
+// ============================================================
+const savedConfig = loadConfig();
+if (savedConfig) {
+  populateConfigForm(savedConfig);
+  document.getElementById('config-panel').classList.add('hidden');
+  connect(savedConfig);
+} else {
+  // Show config panel
+}
+
+</script>
+</body>
+</html>

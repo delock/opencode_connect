@@ -1,4 +1,4 @@
-# OpenCode-Slack Connection Plugin Installation Guide
+# OpenCode Connect - Remote Control Plugin
 
 ## Demo
 
@@ -6,7 +6,10 @@
 
 ## Overview
 
-This document describes how to install and configure the OpenCode-Slack connection plugin to control OpenCode remotely via Slack.
+OpenCode Connect is an OpenCode plugin that allows you to control OpenCode remotely via messaging services. Two transport modes are supported:
+
+- **Slack mode** (`CONNECT_SLACK`) — Control via Slack messages, supports DM and Channel modes
+- **SQS Message mode** (`CONNECT_MSG`) — Control via AWS SQS queues + Web client, no Slack required
 
 ## Installation Steps
 
@@ -20,13 +23,34 @@ git clone https://github.com/delock/opencode_connect
 
 ### 2. Install Dependencies
 
-Edit ~/.config/opencode/package.json or ~/.opencode/package.json and add the following dependencies:
+Edit ~/.config/opencode/package.json or ~/.opencode/package.json and add dependencies based on the mode you're using:
 
+**Slack mode:**
 ```json
 {
   "dependencies": {
     "@slack/socket-mode": "^2.0.5",
     "@slack/web-api": "^7.13.0"
+  }
+}
+```
+
+**SQS Message mode:**
+```json
+{
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.620.0"
+  }
+}
+```
+
+**Both modes:**
+```json
+{
+  "dependencies": {
+    "@slack/socket-mode": "^2.0.5",
+    "@slack/web-api": "^7.13.0",
+    "@aws-sdk/client-sqs": "^3.620.0"
   }
 }
 ```
@@ -265,6 +289,109 @@ For real-time responses, use DM mode (but only one DM instance can run at a time
 - It's recommended to use a dedicated Slack workspace for this integration
 - Rotate API tokens regularly for security
 - Keep the plugin file up to date for best compatibility
+
+---
+
+## SQS Message Mode (CONNECT_MSG)
+
+SQS Message mode uses AWS SQS queues as the transport layer, combined with a Web client (hosted on GitHub Pages) to control OpenCode remotely. No Slack required.
+
+### Architecture
+
+```
+Browser (Web PWA) <---> AWS SQS Queues <---> OpenCode Plugin
+        |                                         |
+   Cognito Credentials                    ~/.aws/credentials
+```
+
+- Two SQS queues: `opencode-to-web` (plugin -> browser) and `web-to-opencode` (browser -> plugin)
+- Browser authenticates via Cognito Identity Pool (unauthenticated access)
+- Plugin uses local AWS credentials (`~/.aws/credentials` or environment variables)
+
+### AWS Resource Setup
+
+#### 1. Create SQS Queues
+
+Create two Standard SQS queues in the AWS Console:
+
+- `opencode-to-web` — plugin sends, browser receives
+- `web-to-opencode` — browser sends, plugin receives
+
+Recommended settings:
+- Message Retention Period: 1 hour (3600 seconds)
+- Visibility Timeout: 30 seconds
+
+#### 2. Create Cognito Identity Pool
+
+1. Go to AWS Cognito Console
+2. Create a new Identity Pool
+3. Enable "Allow unauthenticated identities"
+4. Note the Identity Pool ID (format: `us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+
+#### 3. Configure IAM Permissions
+
+Add the following SQS permissions to the Cognito unauthenticated role:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": [
+        "arn:aws:sqs:REGION:ACCOUNT_ID:opencode-to-web",
+        "arn:aws:sqs:REGION:ACCOUNT_ID:web-to-opencode"
+      ]
+    }
+  ]
+}
+```
+
+### Environment Variables
+
+```bash
+export CONNECT_MSG=1
+export AWS_SQS_QUEUE_TO_WEB=https://sqs.us-east-1.amazonaws.com/123456/opencode-to-web
+export AWS_SQS_QUEUE_FROM_WEB=https://sqs.us-east-1.amazonaws.com/123456/web-to-opencode
+export AWS_REGION=us-east-1
+# AWS credentials from ~/.aws/credentials or:
+# export AWS_ACCESS_KEY_ID=...
+# export AWS_SECRET_ACCESS_KEY=...
+```
+
+### Starting
+
+```bash
+CONNECT_MSG=1 opencode
+```
+
+### Web Client
+
+The web client is located at `docs/index.html` and can be accessed via:
+
+1. **GitHub Pages** — Push to GitHub and enable Pages (Source: `docs/`), then visit `https://your-username.github.io/opencode_connect/`
+2. **Open locally** — Open `docs/index.html` directly in your browser
+
+On first use, you need to configure:
+- AWS Region
+- Cognito Identity Pool ID
+- Two SQS queue URLs
+
+Configuration is saved in the browser's `localStorage`.
+
+### Web Client Features
+
+- Send prompts to OpenCode
+- Receive OpenCode output
+- Respond to permission requests (buttons: Allow Once / Always Allow / Reject)
+- Answer questions (button selection or custom text input)
+- Execute shell commands (`!command` prefix, requires Shell mode enabled)
 
 ---
 

@@ -1,4 +1,4 @@
-# Opencode-Slack连接插件安装配置文档
+# OpenCode Connect 远程控制插件
 
 [English Version](README_en.md)
 
@@ -8,7 +8,10 @@
 
 ## 概述
 
-本文档介绍如何安装和配置Opencode-Slack连接插件，实现通过Slack控制Opencode的工作流程。
+OpenCode Connect 是一个 OpenCode 插件，允许您通过消息服务远程控制 OpenCode。支持两种传输方式：
+
+- **Slack 模式** (`CONNECT_SLACK`) — 通过 Slack 消息控制，支持 DM 和 Channel 模式
+- **SQS 消息模式** (`CONNECT_MSG`) — 通过 AWS SQS 队列 + Web 客户端控制，无需 Slack
 
 ## 安装步骤
 
@@ -22,13 +25,34 @@ git clone https://github.com/delock/opencode_connect
 
 ### 2. 安装依赖包
 
-修改 ~/.config/opencode/package.json 或者 ~/.opencode/package.json 文件，添加以下依赖：
+修改 ~/.config/opencode/package.json 或者 ~/.opencode/package.json 文件，根据您使用的模式添加依赖：
 
+**Slack 模式：**
 ```json
 {
   "dependencies": {
     "@slack/socket-mode": "^2.0.5",
     "@slack/web-api": "^7.13.0"
+  }
+}
+```
+
+**SQS 消息模式：**
+```json
+{
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.620.0"
+  }
+}
+```
+
+**两种模式都用：**
+```json
+{
+  "dependencies": {
+    "@slack/socket-mode": "^2.0.5",
+    "@slack/web-api": "^7.13.0",
+    "@aws-sdk/client-sqs": "^3.620.0"
   }
 }
 ```
@@ -267,6 +291,109 @@ Channel模式通过轮询获取消息：
 - 建议在专用的Slack工作区中进行此集成
 - 定期轮换API令牌以确保安全性
 - 保持插件文件的最新版本以获得最佳兼容性
+
+---
+
+## SQS 消息模式 (CONNECT_MSG)
+
+SQS 消息模式使用 AWS SQS 队列作为传输层，配合 Web 客户端（托管在 GitHub Pages）远程控制 OpenCode。无需 Slack 即可使用。
+
+### 架构
+
+```
+浏览器 (Web PWA) <---> AWS SQS 队列 <---> OpenCode 插件
+         |                                      |
+    Cognito 凭证                          ~/.aws/credentials
+```
+
+- 两个 SQS 队列：`opencode-to-web`（插件 -> 浏览器）和 `web-to-opencode`（浏览器 -> 插件）
+- 浏览器通过 Cognito Identity Pool（匿名访问）获取 AWS 凭证
+- 插件使用本地 AWS 凭证（`~/.aws/credentials` 或环境变量）
+
+### AWS 资源创建
+
+#### 1. 创建 SQS 队列
+
+在 AWS Console 中创建两个 Standard SQS 队列：
+
+- `opencode-to-web` — 插件发送，浏览器接收
+- `web-to-opencode` — 浏览器发送，插件接收
+
+建议配置：
+- Message Retention Period: 1 小时（3600 秒）
+- Visibility Timeout: 30 秒
+
+#### 2. 创建 Cognito Identity Pool
+
+1. 进入 AWS Cognito Console
+2. 创建新的 Identity Pool
+3. 启用 "Allow unauthenticated identities"（匿名访问）
+4. 记录 Identity Pool ID（格式：`us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`）
+
+#### 3. 配置 IAM 权限
+
+为 Cognito 匿名角色添加以下 SQS 权限：
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": [
+        "arn:aws:sqs:REGION:ACCOUNT_ID:opencode-to-web",
+        "arn:aws:sqs:REGION:ACCOUNT_ID:web-to-opencode"
+      ]
+    }
+  ]
+}
+```
+
+### 环境变量配置
+
+```bash
+export CONNECT_MSG=1
+export AWS_SQS_QUEUE_TO_WEB=https://sqs.us-east-1.amazonaws.com/123456/opencode-to-web
+export AWS_SQS_QUEUE_FROM_WEB=https://sqs.us-east-1.amazonaws.com/123456/web-to-opencode
+export AWS_REGION=us-east-1
+# AWS 凭证来自 ~/.aws/credentials 或以下环境变量：
+# export AWS_ACCESS_KEY_ID=...
+# export AWS_SECRET_ACCESS_KEY=...
+```
+
+### 启动
+
+```bash
+CONNECT_MSG=1 opencode
+```
+
+### Web 客户端
+
+Web 客户端位于 `docs/index.html`，可以通过以下方式访问：
+
+1. **GitHub Pages** — 推送到 GitHub 后启用 Pages（Source: `docs/`），访问 `https://your-username.github.io/opencode_connect/`
+2. **本地打开** — 直接用浏览器打开 `docs/index.html`
+
+首次使用时需要配置：
+- AWS Region
+- Cognito Identity Pool ID
+- 两个 SQS 队列 URL
+
+配置会保存在浏览器的 `localStorage` 中。
+
+### Web 客户端功能
+
+- 发送提示给 OpenCode
+- 接收 OpenCode 的输出
+- 响应权限请求（按钮操作：允许一次/始终允许/拒绝）
+- 回答问题（按钮选择选项或自定义输入）
+- 执行 Shell 命令（`!command` 前缀，需要启用 Shell 模式）
 
 ---
 
