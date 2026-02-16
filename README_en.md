@@ -308,29 +308,54 @@ Browser (Web PWA) <---> AWS SQS Queues <---> OpenCode Plugin
 - Browser authenticates via Cognito Identity Pool (unauthenticated access)
 - Plugin uses local AWS credentials (`~/.aws/credentials` or environment variables)
 
-### AWS Resource Setup
+### AWS Resource Setup (Detailed Steps)
 
-#### 1. Create SQS Queues
+#### Step 1: Create SQS Queues
 
-Create two Standard SQS queues in the AWS Console:
+1. Log in to [AWS Console](https://console.aws.amazon.com/)
+2. Search for "SQS" and go to **Amazon SQS** service
+3. Click **Create queue**
+4. Select **Standard** type (not FIFO)
+5. Enter queue name: `opencode-to-web`
+6. Configure parameters (optional, defaults work fine):
+   - Visibility timeout: `30 seconds`
+   - Message retention period: `1 hour` (3600 seconds)
+7. Click **Create queue**
+8. Repeat steps 3-7 to create the second queue named `web-to-opencode`
+9. After creation, click each queue to view details and copy its **URL** (format: `https://sqs.us-east-1.amazonaws.com/123456789012/opencode-to-web`)
 
-- `opencode-to-web` — plugin sends, browser receives
-- `web-to-opencode` — browser sends, plugin receives
+**Queue Purpose:**
+| Queue Name | Sender | Receiver |
+|------------|--------|----------|
+| `opencode-to-web` | OpenCode Plugin | Web Browser |
+| `web-to-opencode` | Web Browser | OpenCode Plugin |
 
-Recommended settings:
-- Message Retention Period: 1 hour (3600 seconds)
-- Visibility Timeout: 30 seconds
+#### Step 2: Create Cognito Identity Pool (for Web Client)
 
-#### 2. Create Cognito Identity Pool
+1. Search for "Cognito" and go to **Amazon Cognito** service
+2. Click **Identity pools** on the left (Note: not User pools)
+3. Click **Create identity pool**
+4. Configure:
+   - **Identity pool name**: `opencode-connect` (or any name you prefer)
+   - **User access**: Select **Guest access** (allow anonymous access)
+5. In the **Guest access** section:
+   - Select **Create a new IAM role**
+   - Use default role name or customize (e.g., `opencode-connect-unauth-role`)
+6. Click **Create identity pool**
+7. After creation, note the following:
+   - **Identity Pool ID** (format: `us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+   - You can find this ID on the Identity pool details page
 
-1. Go to AWS Cognito Console
-2. Create a new Identity Pool
-3. Enable "Allow unauthenticated identities"
-4. Note the Identity Pool ID (format: `us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+#### Step 3: Configure SQS Permissions for Cognito Role
 
-#### 3. Configure IAM Permissions
+The Web client needs access to SQS queues through the Cognito role:
 
-Add the following SQS permissions to the Cognito unauthenticated role:
+1. Search for "IAM" and go to **IAM** service
+2. Click **Roles** on the left
+3. Search and click the role you created in Step 2 (e.g., `opencode-connect-unauth-role`)
+4. Click **Add permissions** → **Create inline policy**
+5. Select the **JSON** tab
+6. Copy the following policy (**replace `REGION` and `ACCOUNT_ID` with your actual values**):
 
 ```json
 {
@@ -353,16 +378,137 @@ Add the following SQS permissions to the Cognito unauthenticated role:
 }
 ```
 
-### Environment Variables
+**How to get REGION and ACCOUNT_ID:**
+- REGION: Your queue's region, e.g., `us-east-1`, `us-east-2`, `ap-northeast-1`, etc.
+- ACCOUNT_ID: Can be extracted from the queue URL format: `https://sqs.{REGION}.amazonaws.com/{ACCOUNT_ID}/{QUEUE_NAME}`
+
+7. Click **Next**
+8. Enter policy name (e.g., `opencode-sqs-access`)
+9. Click **Create policy**
+
+#### Step 4: Create IAM User (for Plugin)
+
+The OpenCode plugin needs AWS credentials to access SQS queues:
+
+1. In **IAM** service, click **Users** on the left
+2. Click **Create user**
+3. Enter username (e.g., `opencode-connect-plugin`)
+4. Click **Next**
+5. On the permissions page, select **Attach policies directly**
+6. Search and select **AmazonSQSFullAccess** (or for better security, create a custom policy that only allows access to your two queues)
+7. Click **Next**, then **Create user**
+
+**Creating a Custom SQS Policy (Optional, More Secure):**
+
+To limit the user to only access your two queues:
+
+1. IAM → Policies → Create policy
+2. Select JSON and paste the following (replace REGION and ACCOUNT_ID):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": [
+        "arn:aws:sqs:REGION:ACCOUNT_ID:opencode-to-web",
+        "arn:aws:sqs:REGION:ACCOUNT_ID:web-to-opencode"
+      ]
+    }
+  ]
+}
+```
+
+3. After creating the policy, go back to user creation and select this custom policy
+
+#### Step 5: Get Access Keys
+
+1. After creating the user, click the username to view user details
+2. Click the **Security credentials** tab
+3. In the **Access keys** section, click **Create access key**
+4. Select use case: **Command Line Interface (CLI)**
+5. Click **Next**, optionally add a description tag
+6. Click **Create access key**
+7. **Important**: Immediately copy and save **Access Key ID** and **Secret Access Key**
+   - Secret Access Key is only shown once and cannot be retrieved later
+   - If lost, you'll need to create a new Access Key
+
+#### Step 6: Configure Local AWS Credentials
+
+Configure AWS credentials on the machine running OpenCode:
+
+**Method 1: Using Credentials File (Recommended)**
 
 ```bash
+mkdir -p ~/.aws
+
+cat > ~/.aws/credentials << 'EOF'
+[default]
+aws_access_key_id = YOUR_ACCESS_KEY_ID
+aws_secret_access_key = YOUR_SECRET_ACCESS_KEY
+EOF
+```
+
+**Method 2: Using Environment Variables**
+
+```bash
+export AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_ACCESS_KEY
+```
+
+**Method 3: Using AWS CLI**
+
+If AWS CLI is installed:
+```bash
+aws configure
+# Follow prompts to enter Access Key ID, Secret Access Key, Region, and output format
+```
+
+**Verify Credentials:**
+
+```bash
+# If you have AWS CLI
+aws sts get-caller-identity
+
+# Or use our test script
+node test-sqs.mjs
+```
+
+### Environment Variables
+
+Configure environment variables for the OpenCode plugin:
+
+```bash
+# Enable SQS message mode
 export CONNECT_MSG=1
-export AWS_SQS_QUEUE_TO_WEB=https://sqs.us-east-1.amazonaws.com/123456/opencode-to-web
-export AWS_SQS_QUEUE_FROM_WEB=https://sqs.us-east-1.amazonaws.com/123456/web-to-opencode
-export AWS_REGION=us-east-1
-# AWS credentials from ~/.aws/credentials or:
-# export AWS_ACCESS_KEY_ID=...
-# export AWS_SECRET_ACCESS_KEY=...
+
+# SQS Queue URLs (replace with your actual values)
+export AWS_SQS_QUEUE_TO_WEB=https://sqs.us-east-2.amazonaws.com/YOUR_ACCOUNT_ID/opencode-to-web
+export AWS_SQS_QUEUE_FROM_WEB=https://sqs.us-east-2.amazonaws.com/YOUR_ACCOUNT_ID/web-to-opencode
+
+# AWS Region
+export AWS_REGION=us-east-2
+```
+
+You can add these to `~/.bashrc` or `~/.zshrc`:
+
+```bash
+cat >> ~/.bashrc << 'EOF'
+# OpenCode Connect SQS Configuration
+export CONNECT_MSG=1
+export AWS_SQS_QUEUE_TO_WEB=https://sqs.us-east-2.amazonaws.com/YOUR_ACCOUNT_ID/opencode-to-web
+export AWS_SQS_QUEUE_FROM_WEB=https://sqs.us-east-2.amazonaws.com/YOUR_ACCOUNT_ID/web-to-opencode
+export AWS_REGION=us-east-2
+EOF
+
+source ~/.bashrc
 ```
 
 ### Starting
@@ -379,11 +525,12 @@ The web client is located at `docs/index.html` and can be accessed via:
 2. **Open locally** — Open `docs/index.html` directly in your browser
 
 On first use, you need to configure:
-- AWS Region
-- Cognito Identity Pool ID
-- Two SQS queue URLs
+- **AWS Region**: Your SQS queue region (e.g., `us-east-2`)
+- **Cognito Identity Pool ID**: The Pool ID created in Step 2
+- **SQS Queue (to web)**: URL of `opencode-to-web` queue
+- **SQS Queue (from web)**: URL of `web-to-opencode` queue
 
-Configuration is saved in the browser's `localStorage`.
+Configuration is saved in the browser's `localStorage` and automatically loaded on subsequent visits.
 
 ### Web Client Features
 
@@ -392,6 +539,28 @@ Configuration is saved in the browser's `localStorage`.
 - Respond to permission requests (buttons: Allow Once / Always Allow / Reject)
 - Answer questions (button selection or custom text input)
 - Execute shell commands (`!command` prefix, requires Shell mode enabled)
+
+### Configuration Summary
+
+| Component | Required Info | Purpose |
+|-----------|---------------|---------|
+| SQS Queues | 2 queue URLs | Message transport |
+| Cognito Identity Pool | Pool ID | Web client gets temporary credentials |
+| IAM User | Access Key ID + Secret Access Key | Plugin accesses SQS |
+
+### Troubleshooting
+
+**Q: "Could not load credentials from any providers"**
+- Check if `~/.aws/credentials` file exists and has correct format
+- Verify Access Key hasn't expired or been deleted
+
+**Q: Web client shows permission error**
+- Check if Cognito unauthenticated role's IAM policy is correctly configured
+- Ensure queue ARNs in the policy match actual queues
+
+**Q: Message sent but not received**
+- Check if receiving from the correct queue
+- Web client should receive from `opencode-to-web`, send to `web-to-opencode`
 
 ---
 

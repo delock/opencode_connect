@@ -30,9 +30,12 @@ body {
   background: var(--surface);
   padding: 16px;
   border-bottom: 1px solid var(--border);
+  max-height: 70vh;
+  overflow-y: auto;
 }
 #config-panel.hidden { display: none; }
 #config-panel h2 { margin-bottom: 12px; font-size: 16px; }
+#config-panel h3 { margin: 16px 0 8px 0; font-size: 14px; color: var(--text-dim); }
 .config-row {
   display: flex;
   gap: 8px;
@@ -44,7 +47,7 @@ body {
   font-size: 13px;
   color: var(--text-dim);
 }
-.config-row input {
+.config-row input, .config-row select {
   flex: 1;
   padding: 6px 10px;
   background: var(--bg);
@@ -52,6 +55,43 @@ body {
   color: var(--text);
   border-radius: 4px;
   font-size: 13px;
+}
+.config-row select {
+  cursor: pointer;
+}
+.mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mode-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 8px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.mode-toggle input[type="radio"] { display: none; }
+.mode-toggle input[type="radio"]:checked + span {
+  color: var(--accent);
+}
+.mode-toggle label:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--surface2);
+}
+.dev-warning {
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--warn);
 }
 .btn {
   padding: 6px 16px;
@@ -91,6 +131,13 @@ body {
 }
 #status-dot.connected { background: var(--success); }
 #status-dot.polling { background: var(--warn); }
+#status-mode {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  margin-left: 8px;
+}
 #messages {
   flex: 1;
   overflow-y: auto;
@@ -173,9 +220,15 @@ body {
 #send-btn {
   align-self: flex-end;
 }
+.cognito-fields, .dev-fields {
+  display: none;
+}
+.cognito-fields.show, .dev-fields.show {
+  display: block;
+}
 @media (max-width: 600px) {
-  .config-row { flex-direction: column; }
-  .config-row label { min-width: auto; }
+  .config-row { flex-direction: column; align-items: stretch; }
+  .config-row label { min-width: auto; margin-bottom: 4px; }
   .msg { max-width: 95%; }
 }
 </style>
@@ -185,24 +238,63 @@ body {
 <!-- Config Panel -->
 <div id="config-panel">
   <h2>OpenCode Connect - Configuration</h2>
+  
+  <!-- Mode Toggle -->
+  <div class="mode-toggle">
+    <label>
+      <input type="radio" name="auth-mode" value="dev" checked id="mode-dev">
+      <span>Dev Mode (Access Key)</span>
+    </label>
+    <label>
+      <input type="radio" name="auth-mode" value="cognito" id="mode-cognito">
+      <span>Cognito Mode</span>
+    </label>
+  </div>
+  
+  <!-- Dev Mode Warning -->
+  <div class="dev-fields show" id="dev-warning">
+    <div class="dev-warning">
+      <strong>Dev Mode:</strong> Credentials are stored in browser localStorage. 
+      Only use for local testing. For production, use Cognito mode.
+    </div>
+  </div>
+  
+  <!-- Dev Mode Fields -->
+  <div class="dev-fields show" id="dev-fields">
+    <div class="config-row">
+      <label>Access Key ID</label>
+      <input id="cfg-access-key" type="password" placeholder="AKIA..." autocomplete="off" />
+    </div>
+    <div class="config-row">
+      <label>Secret Access Key</label>
+      <input id="cfg-secret-key" type="password" placeholder="Secret..." autocomplete="off" />
+    </div>
+  </div>
+  
+  <!-- Cognito Mode Fields -->
+  <div class="cognito-fields" id="cognito-fields">
+    <div class="config-row">
+      <label>Cognito Identity Pool ID</label>
+      <input id="cfg-cognito" placeholder="us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+    </div>
+  </div>
+  
+  <!-- Common Fields -->
+  <h3>SQS Queues</h3>
   <div class="config-row">
     <label>AWS Region</label>
     <input id="cfg-region" placeholder="us-east-1" />
   </div>
   <div class="config-row">
-    <label>Cognito Identity Pool ID</label>
-    <input id="cfg-cognito" placeholder="us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-  </div>
-  <div class="config-row">
-    <label>SQS Queue (to web)</label>
+    <label>Queue (to web)</label>
     <input id="cfg-queue-to-web" placeholder="https://sqs.us-east-1.amazonaws.com/123456/opencode-to-web" />
   </div>
   <div class="config-row">
-    <label>SQS Queue (from web)</label>
+    <label>Queue (from web)</label>
     <input id="cfg-queue-from-web" placeholder="https://sqs.us-east-1.amazonaws.com/123456/web-to-opencode" />
   </div>
-  <div class="config-row" style="justify-content: flex-end;">
-    <button class="btn btn-primary" onclick="saveConfig()">Save & Connect</button>
+  <div class="config-row" style="justify-content: flex-end; margin-top: 12px;">
+    <button id="btn-save-config" class="btn btn-primary">Save & Connect</button>
   </div>
 </div>
 
@@ -211,10 +303,11 @@ body {
   <div id="status-indicator">
     <div id="status-dot"></div>
     <span id="status-text">Disconnected</span>
+    <span id="status-mode"></span>
   </div>
   <div>
-    <button class="btn btn-secondary btn-small" onclick="toggleConfig()">Config</button>
-    <button class="btn btn-secondary btn-small" onclick="clearMessages()">Clear</button>
+    <button id="btn-config" class="btn btn-secondary btn-small">Config</button>
+    <button id="btn-clear" class="btn btn-secondary btn-small">Clear</button>
   </div>
 </div>
 
@@ -224,18 +317,14 @@ body {
 <!-- Input -->
 <div id="input-area">
   <textarea id="msg-input" placeholder="Type a message or !command..." rows="1"></textarea>
-  <button id="send-btn" class="btn btn-primary" onclick="sendPrompt()">Send</button>
+  <button id="btn-send" class="btn btn-primary">Send</button>
 </div>
-
-<!-- AWS SDK from CDN -->
-<script src="https://cdn.jsdelivr.net/npm/@aws-sdk/client-sqs@3.620.0/dist-es/bundle.min.js" type="module" onerror="loadFallback()"></script>
 
 <script type="module">
 // ============================================================
-// AWS SDK imports (ESM from CDN)
+// AWS SDK - use skypack CDN
 // ============================================================
-import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand } from 'https://cdn.jsdelivr.net/npm/@aws-sdk/client-sqs@3.620.0/+esm';
-import { fromCognitoIdentityPool } from 'https://cdn.jsdelivr.net/npm/@aws-sdk/credential-providers@3.620.0/+esm';
+import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand } from 'https://cdn.skypack.dev/@aws-sdk/client-sqs@3.620.0?min';
 
 // ============================================================
 // State
@@ -245,14 +334,7 @@ let queueToWeb = '';
 let queueFromWeb = '';
 let polling = false;
 let pollAbort = null;
-
-// Expose functions to inline onclick handlers
-window.saveConfig = saveConfig;
-window.toggleConfig = toggleConfig;
-window.clearMessages = clearMessages;
-window.sendPrompt = sendPrompt;
-window.sendPermissionReply = sendPermissionReply;
-window.sendQuestionReply = sendQuestionReply;
+let currentMode = 'dev';
 
 // ============================================================
 // Config
@@ -263,16 +345,61 @@ function loadConfig() {
   try { return JSON.parse(saved); } catch { return null; }
 }
 
+function getAuthMode() {
+  const radios = document.getElementsByName('auth-mode');
+  for (const r of radios) {
+    if (r.checked) return r.value;
+  }
+  return 'dev';
+}
+
+function toggleAuthMode() {
+  const mode = getAuthMode();
+  currentMode = mode;
+  
+  const devFields = document.getElementById('dev-fields');
+  const devWarning = document.getElementById('dev-warning');
+  const cognitoFields = document.getElementById('cognito-fields');
+  
+  if (mode === 'dev') {
+    devFields.classList.add('show');
+    devWarning.classList.add('show');
+    cognitoFields.classList.remove('show');
+  } else {
+    devFields.classList.remove('show');
+    devWarning.classList.remove('show');
+    cognitoFields.classList.add('show');
+  }
+}
+
 function saveConfig() {
+  const mode = getAuthMode();
   const config = {
+    mode,
     region: document.getElementById('cfg-region').value.trim(),
-    cognitoPoolId: document.getElementById('cfg-cognito').value.trim(),
     queueToWeb: document.getElementById('cfg-queue-to-web').value.trim(),
     queueFromWeb: document.getElementById('cfg-queue-from-web').value.trim(),
   };
 
-  if (!config.region || !config.cognitoPoolId || !config.queueToWeb || !config.queueFromWeb) {
-    alert('All fields are required.');
+  if (mode === 'dev') {
+    config.accessKey = document.getElementById('cfg-access-key').value.trim();
+    config.secretKey = document.getElementById('cfg-secret-key').value.trim();
+    
+    if (!config.accessKey || !config.secretKey) {
+      alert('Access Key ID and Secret Access Key are required in Dev Mode.');
+      return;
+    }
+  } else {
+    config.cognitoPoolId = document.getElementById('cfg-cognito').value.trim();
+    
+    if (!config.cognitoPoolId) {
+      alert('Cognito Identity Pool ID is required in Cognito Mode.');
+      return;
+    }
+  }
+
+  if (!config.region || !config.queueToWeb || !config.queueFromWeb) {
+    alert('Region and Queue URLs are required.');
     return;
   }
 
@@ -283,10 +410,25 @@ function saveConfig() {
 
 function populateConfigForm(config) {
   if (!config) return;
+  
+  // Set mode
+  const mode = config.mode || 'dev';
+  const radios = document.getElementsByName('auth-mode');
+  for (const r of radios) {
+    r.checked = r.value === mode;
+  }
+  toggleAuthMode();
+  
   document.getElementById('cfg-region').value = config.region || '';
-  document.getElementById('cfg-cognito').value = config.cognitoPoolId || '';
   document.getElementById('cfg-queue-to-web').value = config.queueToWeb || '';
   document.getElementById('cfg-queue-from-web').value = config.queueFromWeb || '';
+  
+  if (mode === 'dev') {
+    document.getElementById('cfg-access-key').value = config.accessKey || '';
+    document.getElementById('cfg-secret-key').value = config.secretKey || '';
+  } else {
+    document.getElementById('cfg-cognito').value = config.cognitoPoolId || '';
+  }
 }
 
 function toggleConfig() {
@@ -306,24 +448,27 @@ function connect(config) {
   polling = false;
 
   try {
-    const credentials = fromCognitoIdentityPool({
-      identityPoolId: config.cognitoPoolId,
-      clientConfig: { region: config.region },
-    });
-
+    // Store credentials for async provider
+    const creds = {
+      accessKeyId: config.accessKey,
+      secretAccessKey: config.secretKey,
+    };
+    
     sqsClient = new SQSClient({
       region: config.region,
-      credentials,
+      credentials: async () => creds,
     });
 
-    queueToWeb = config.queueToWeb;   // plugin sends here, we read
-    queueFromWeb = config.queueFromWeb; // we send here, plugin reads
+    queueToWeb = config.queueToWeb;
+    queueFromWeb = config.queueFromWeb;
 
+    document.getElementById('status-mode').textContent = 'Dev Mode';
     setStatus('polling', 'Connecting...');
     startPolling();
   } catch (err) {
     setStatus('error', 'Connection failed');
     addMessage('error', `Connection error: ${err.message}`);
+    document.getElementById('config-panel').classList.remove('hidden');
   }
 }
 
@@ -414,22 +559,22 @@ async function sendPrompt() {
   }
 }
 
-window.sendPermissionReply = async function(permissionId, response) {
+async function sendPermissionReply(permissionId, response) {
   addMessage('out', `Permission: ${response}`);
   // Disable buttons in the permission message
   const btns = document.querySelectorAll(`[data-perm-id="${permissionId}"]`);
   btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
   await sendToSqs({ type: 'permission_reply', permissionId, response });
-};
+}
 
-window.sendQuestionReply = async function(requestId, answers) {
+async function sendQuestionReply(requestId, answers) {
   const label = Array.isArray(answers[0]) ? answers[0][0] : answers;
   addMessage('out', `Answer: ${label}`);
   // Disable buttons
   const btns = document.querySelectorAll(`[data-q-id="${requestId}"]`);
   btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
   await sendToSqs({ type: 'question_reply', requestId, answers });
-};
+}
 
 // ============================================================
 // Handle incoming messages
@@ -456,9 +601,9 @@ function handleIncoming(msg) {
       if (msg.toolName) html += `Tool: <code>${escHtml(msg.toolName)}</code>\n`;
       if (msg.toolArgs) html += `Args: <code>${escHtml(truncate(msg.toolArgs, 200))}</code>\n`;
       html += `<div class="msg-actions">`;
-      html += `<button class="btn btn-small btn-success" data-perm-id="${escAttr(msg.permissionId)}" onclick="sendPermissionReply('${escAttr(msg.permissionId)}','once')">Allow Once</button>`;
-      html += `<button class="btn btn-small btn-warn" data-perm-id="${escAttr(msg.permissionId)}" onclick="sendPermissionReply('${escAttr(msg.permissionId)}','always')">Always Allow</button>`;
-      html += `<button class="btn btn-small btn-error" data-perm-id="${escAttr(msg.permissionId)}" onclick="sendPermissionReply('${escAttr(msg.permissionId)}','reject')">Reject</button>`;
+      html += `<button class="btn btn-small btn-success perm-btn" data-perm-id="${escAttr(msg.permissionId)}" data-response="once">Allow Once</button>`;
+      html += `<button class="btn btn-small btn-warn perm-btn" data-perm-id="${escAttr(msg.permissionId)}" data-response="always">Always Allow</button>`;
+      html += `<button class="btn btn-small btn-error perm-btn" data-perm-id="${escAttr(msg.permissionId)}" data-response="reject">Reject</button>`;
       html += `</div>`;
 
       div.innerHTML = html;
@@ -479,14 +624,14 @@ function handleIncoming(msg) {
       for (let i = 0; i < options.length; i++) {
         const opt = options[i];
         const label = opt.label + (opt.description ? ` - ${opt.description}` : '');
-        html += `<button class="btn btn-small btn-secondary" data-q-id="${escAttr(msg.requestId)}" onclick="sendQuestionReply('${escAttr(msg.requestId)}', [['${escAttr(opt.label)}']])">${i + 1}. ${escHtml(label)}</button>`;
+        html += `<button class="btn btn-small btn-secondary q-btn" data-q-id="${escAttr(msg.requestId)}" data-answer="${escAttr(opt.label)}">${i + 1}. ${escHtml(label)}</button>`;
       }
       html += `</div>`;
 
       if (msg.custom) {
         html += `<div style="margin-top:8px;display:flex;gap:6px;">`;
-        html += `<input type="text" id="custom-${escAttr(msg.requestId)}" placeholder="Custom answer..." style="flex:1;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:13px;" />`;
-        html += `<button class="btn btn-small btn-primary" data-q-id="${escAttr(msg.requestId)}" onclick="var v=document.getElementById('custom-${escAttr(msg.requestId)}').value.trim();if(v)sendQuestionReply('${escAttr(msg.requestId)}',[[v]]);">Send</button>`;
+        html += `<input type="text" class="q-custom-input" data-q-id="${escAttr(msg.requestId)}" placeholder="Custom answer..." style="flex:1;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:13px;" />`;
+        html += `<button class="btn btn-small btn-primary q-custom-btn" data-q-id="${escAttr(msg.requestId)}">Send</button>`;
         html += `</div>`;
       }
 
@@ -607,13 +752,52 @@ function autoResizeInput() {
 // ============================================================
 // Init
 // ============================================================
+document.getElementById('btn-save-config').addEventListener('click', saveConfig);
+document.getElementById('btn-config').addEventListener('click', toggleConfig);
+document.getElementById('btn-clear').addEventListener('click', clearMessages);
+document.getElementById('btn-send').addEventListener('click', sendPrompt);
+document.getElementById('mode-dev').addEventListener('change', toggleAuthMode);
+document.getElementById('mode-cognito').addEventListener('change', toggleAuthMode);
+
+// Event delegation for dynamically created buttons
+document.getElementById('messages').addEventListener('click', async (e) => {
+  const target = e.target;
+  
+  // Permission buttons
+  if (target.classList.contains('perm-btn')) {
+    const permId = target.dataset.permId;
+    const response = target.dataset.response;
+    await sendPermissionReply(permId, response);
+    return;
+  }
+  
+  // Question option buttons
+  if (target.classList.contains('q-btn')) {
+    const qId = target.dataset.qId;
+    const answer = target.dataset.answer;
+    await sendQuestionReply(qId, [[answer]]);
+    return;
+  }
+  
+  // Question custom send button
+  if (target.classList.contains('q-custom-btn')) {
+    const qId = target.dataset.qId;
+    const input = document.querySelector(`.q-custom-input[data-q-id="${qId}"]`);
+    if (input && input.value.trim()) {
+      await sendQuestionReply(qId, [[input.value.trim()]]);
+    }
+    return;
+  }
+});
+
 const savedConfig = loadConfig();
 if (savedConfig) {
   populateConfigForm(savedConfig);
   document.getElementById('config-panel').classList.add('hidden');
   connect(savedConfig);
 } else {
-  // Show config panel
+  // Show config panel with dev mode as default
+  toggleAuthMode();
 }
 
 </script>
